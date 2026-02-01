@@ -37,7 +37,7 @@ export default function SetupScreen() {
                 <br />
                 <code className="text-gray-500"># or</code>
                 <br />
-                <code className="text-green-400">node -e "console.log(require('crypto').randomUUID())"</code>
+                <code className="text-green-400">node -e &quot;console.log(require(&apos;crypto&apos;).randomUUID())&quot;</code>
               </pre>
             </li>
             <li>

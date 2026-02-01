@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient, hasSupabaseConfig } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Todo, Event, CommandLog } from '@/lib/types'
@@ -18,22 +18,7 @@ export default function AdminPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Show setup screen if env vars are missing
-  if (!hasSupabaseConfig()) {
-    return <SetupScreen />
-  }
-
-  useEffect(() => {
-    if (activeTab === 'todos') {
-      fetchTodos()
-    } else if (activeTab === 'events') {
-      fetchEvents()
-    } else if (activeTab === 'logs') {
-      fetchLogs()
-    }
-  }, [activeTab, filterStatus])
-
-  const fetchTodos = async () => {
+  const fetchTodos = useCallback(async () => {
     if (!supabase) return
     const { data } = await supabase
       .from('todos')
@@ -41,9 +26,9 @@ export default function AdminPage() {
       .eq('household_id', householdId)
       .order('created_at', { ascending: false })
     if (data) setTodos(data)
-  }
+  }, [supabase, householdId])
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     if (!supabase) return
     const { data } = await supabase
       .from('events')
@@ -51,9 +36,9 @@ export default function AdminPage() {
       .eq('household_id', householdId)
       .order('start_at', { ascending: true })
     if (data) setEvents(data)
-  }
+  }, [supabase, householdId])
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     if (!supabase) return
     let query = supabase
       .from('command_logs')
@@ -68,6 +53,21 @@ export default function AdminPage() {
 
     const { data } = await query
     if (data) setLogs(data)
+  }, [supabase, householdId, filterStatus])
+
+  useEffect(() => {
+    if (activeTab === 'todos') {
+      fetchTodos()
+    } else if (activeTab === 'events') {
+      fetchEvents()
+    } else if (activeTab === 'logs') {
+      fetchLogs()
+    }
+  }, [activeTab, filterStatus, fetchTodos, fetchEvents, fetchLogs])
+
+  // Show setup screen if env vars are missing
+  if (!hasSupabaseConfig()) {
+    return <SetupScreen />
   }
 
   const deleteTodo = async (id: string) => {
