@@ -70,10 +70,11 @@ export default function YouTubePlayer() {
   // Show YouTube player if URL exists, otherwise show motivational quote
   if (youtubeUrl) {
     return (
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-full flex items-center justify-center p-4">
         <iframe
           src={`${youtubeUrl}?autoplay=1&controls=1&rel=0`}
-          className="w-full h-full max-w-4xl aspect-video"
+          className="w-full h-full max-w-6xl aspect-video rounded-2xl shadow-2xl"
+          style={{ borderRadius: '24px' }}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
           title="YouTube video player"

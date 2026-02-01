@@ -1,6 +1,8 @@
 import logging
 import json
 import urllib.request
+import urllib.error
+import os
 from ask_sdk_core.skill_builder import SkillBuilder
 from ask_sdk_core.dispatch_components import AbstractRequestHandler
 from ask_sdk_core.dispatch_components import AbstractExceptionHandler
@@ -94,6 +96,8 @@ def call_vercel(action, data):
 
     secret = os.environ.get('ALEXA_SHARED_SECRET', '')
     
+    logger.info(f"Calling Vercel API: {url} with action={action}, secret_length={len(secret)}")
+    
     req = urllib.request.Request(
         url,
         data=body,
@@ -106,10 +110,15 @@ def call_vercel(action, data):
 
     try:
         response = urllib.request.urlopen(req)
-        return json.loads(response.read().decode('utf-8'))
+        result = json.loads(response.read().decode('utf-8'))
+        logger.info(f"API call successful: {result}")
+        return result
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8')
         logger.error(f"API call failed: {e.code} - {error_body}")
+        raise
+    except Exception as e:
+        logger.error(f"API call error: {type(e).__name__}: {e}")
         raise
 
 class LaunchRequestHandler(AbstractRequestHandler):
@@ -195,7 +204,7 @@ class YoutubeIntentHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         logger.info("YoutubeIntentHandler: Handling YouTube intent")
         try:
-            logger.info(f"YoutubeIntentHandler: Calling Vercel API with action='youtube'")
+            logger.info("YoutubeIntentHandler: Calling Vercel API with action='youtube'")
             result = call_vercel("youtube", {})
             logger.info(f"YoutubeIntentHandler: API call successful, result: {result}")
             speech_text = f"Opening YouTube. Please scan the QR code or enter the video URL."
