@@ -11,37 +11,8 @@ export default function YouTubePlayer() {
     const supabase = createClient()
     if (!supabase) return
 
-    // Get the most recent completed YouTube command
-    const fetchCurrentVideo = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('youtube_commands')
-          .select('youtube_url')
-          .eq('status', 'completed')
-          .not('youtube_url', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-
-        if (error) {
-          // Table doesn't exist or RLS issue
-          if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
-            console.log('youtube_commands table does not exist yet')
-            return
-          }
-          console.error('Error fetching YouTube video:', error)
-          return
-        }
-
-        if (data && data.length > 0 && data[0].youtube_url) {
-          setYoutubeUrl(data[0].youtube_url)
-        }
-      } catch (err) {
-        // Table might not exist or no video found
-        console.log('No YouTube video found or table does not exist')
-      }
-    }
-
-    fetchCurrentVideo()
+    // Don't load existing videos on page refresh - only show new ones via Realtime
+    // This ensures the dashboard goes back to motivational quotes on refresh
 
     // Subscribe to updates when new videos are submitted
     const channel = supabase
@@ -55,12 +26,15 @@ export default function YouTubePlayer() {
           filter: 'status=eq.completed'
         },
         (payload: any) => {
+          console.log('YouTube video submitted via Realtime:', payload.new)
           if (payload.new.youtube_url) {
             setYoutubeUrl(payload.new.youtube_url)
           }
         }
       )
-      .subscribe()
+      .subscribe((status: string) => {
+        console.log('YouTube player subscription status:', status)
+      })
 
     return () => {
       supabase.removeChannel(channel)
