@@ -113,6 +113,8 @@ async function handleRemoveTodo(data: any) {
   const todoId = data.id || data.todoId
   const text = data.text || data.body || data.item
 
+  console.log('Remove todo request:', { todoId, text, data })
+
   if (!todoId && !text) {
     throw new Error('Invalid input: id or text/body/item is required')
   }
@@ -131,21 +133,69 @@ async function handleRemoveTodo(data: any) {
 
     return { ok: true, deleted: true }
   } else {
-    // Find by matching text
-    const { data: todos, error: findError } = await supabase
+    // Normalize the search text
+    const searchText = String(text).trim().toLowerCase()
+    console.log('Searching for todo with text:', searchText)
+    
+    // First try exact match (case-insensitive)
+    let { data: todos, error: findError } = await supabase
       .from('todo')
-      .select('id')
-      .ilike('body', `%${text}%`)
-      .limit(1)
+      .select('id, body')
+      .ilike('body', searchText)
+      .limit(10)
+    
+    console.log('Exact match results:', { todos, findError })
+
+    // If no exact match, try partial match
+    if (!findError && (!todos || todos.length === 0)) {
+      const { data: partialTodos, error: partialError } = await supabase
+        .from('todo')
+        .select('id, body')
+        .ilike('body', `%${searchText}%`)
+        .limit(10)
+
+      if (!partialError) {
+        todos = partialTodos
+        findError = null
+      }
+    }
 
     if (findError) {
       throw new Error(`Failed to find todo: ${findError.message}`)
     }
 
     if (!todos || todos.length === 0) {
-      throw new Error('Todo not found')
+      // Try to find the best match by checking if search text is contained in any todo
+      const { data: allTodos, error: allError } = await supabase
+        .from('todo')
+        .select('id, body')
+        .limit(50)
+
+      if (!allError && allTodos) {
+        // Find todos where the search text matches any part
+        const matches = allTodos.filter(todo => 
+          todo.body && todo.body.toLowerCase().includes(searchText)
+        )
+
+        if (matches.length > 0) {
+          // Delete the first match
+          const { error: deleteError } = await supabase
+            .from('todo')
+            .delete()
+            .eq('id', matches[0].id)
+
+          if (deleteError) {
+            throw new Error(`Failed to remove todo: ${deleteError.message}`)
+          }
+
+          return { ok: true, deleted: true, matched: matches[0].body }
+        }
+      }
+
+      throw new Error(`Todo not found: "${text}"`)
     }
 
+    // Delete the first match
     const { error: deleteError } = await supabase
       .from('todo')
       .delete()
@@ -155,7 +205,7 @@ async function handleRemoveTodo(data: any) {
       throw new Error(`Failed to remove todo: ${deleteError.message}`)
     }
 
-    return { ok: true, deleted: true }
+    return { ok: true, deleted: true, matched: todos[0].body }
   }
 }
 
