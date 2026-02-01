@@ -193,14 +193,19 @@ class YoutubeIntentHandler(AbstractRequestHandler):
         return is_intent_name("YoutubeIntent")(handler_input)
 
     def handle(self, handler_input):
+        logger.info("YoutubeIntentHandler: Handling YouTube intent")
         try:
-            call_vercel("youtube", {})
+            logger.info(f"YoutubeIntentHandler: Calling Vercel API with action='youtube'")
+            result = call_vercel("youtube", {})
+            logger.info(f"YoutubeIntentHandler: API call successful, result: {result}")
             speech_text = f"Opening YouTube. Please scan the QR code or enter the video URL."
         except Exception as e:
-            logger.error(f"Failed to trigger YouTube command: {e}")
+            logger.error(f"YoutubeIntentHandler: Failed to trigger YouTube command: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"YoutubeIntentHandler: Traceback: {traceback.format_exc()}")
             speech_text = f"Sorry, I couldn't open YouTube. Please try again."
 
-        logger.info("playing youtube")
+        logger.info("YoutubeIntentHandler: Response speech: " + speech_text)
         handler_input.response_builder.speak(speech_text)
 
         return handler_input.response_builder.response

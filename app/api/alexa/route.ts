@@ -56,7 +56,9 @@ export async function POST(request: NextRequest) {
       
       case 'youtube':
       case 'play/youtube':
+        console.log('YouTube action detected, calling handleYouTubeCommand')
         result = await handleYouTubeCommand(data)
+        console.log('YouTube command result:', result)
         break
       
       default:
@@ -316,9 +318,11 @@ async function handleAddCalendarEvent(data: any) {
 }
 
 async function handleYouTubeCommand(data: any) {
+  console.log('handleYouTubeCommand called with data:', data)
   const supabase = createServerClient()
   
   // Create a new YouTube command record
+  console.log('Inserting YouTube command into database...')
   const { data: command, error } = await supabase
     .from('youtube_commands')
     .insert({
@@ -329,13 +333,15 @@ async function handleYouTubeCommand(data: any) {
     .single()
 
   if (error) {
+    console.error('Error creating YouTube command:', error)
     // If table doesn't exist, create it (this is a fallback - you should create the table in Supabase)
-    if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+    if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
       throw new Error('youtube_commands table does not exist. Please create it in Supabase.')
     }
     throw new Error(`Failed to create YouTube command: ${error.message}`)
   }
 
+  console.log('YouTube command created successfully:', command)
   return {
     ok: true,
     commandId: command.id,
