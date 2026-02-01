@@ -173,12 +173,18 @@ export default function PhotoTryoutCapture() {
         })
       })
 
+      const responseData = await response.json()
+
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to generate image')
+        console.error('API error response:', responseData)
+        throw new Error(responseData.error || 'Failed to generate image')
       }
 
-      const { imageData, mimeType } = await response.json()
+      const { imageData, mimeType } = responseData
+      if (!imageData) {
+        throw new Error('No image data in response')
+      }
+      
       const resultImageUrl = `data:${mimeType};base64,${imageData}`
 
       // Update command with result

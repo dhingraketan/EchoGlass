@@ -35,33 +35,49 @@ export async function POST(request: NextRequest) {
 
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
+      console.error('GEMINI_API_KEY is not set in environment variables')
+      console.error('Available env vars:', Object.keys(process.env).filter(k => k.includes('GEMINI')))
       return NextResponse.json(
-        { error: 'Gemini API key not configured' },
+        { error: 'Gemini API key not configured. Please add GEMINI_API_KEY to your .env.local file.' },
         { status: 500 }
       )
     }
 
-    // Fetch images and convert to base64
-    const [userPhotoResponse, clothingImageResponse] = await Promise.all([
-      fetch(userPhotoUrl),
-      fetch(clothingImageUrl)
-    ])
+    // Helper function to extract base64 from data URL or fetch from regular URL
+    const getImageBase64 = async (url: string): Promise<{ base64: string; mimeType: string }> => {
+      // Check if it's a data URL (base64 encoded)
+      if (url.startsWith('data:')) {
+        const matches = url.match(/^data:([^;]+);base64,(.+)$/)
+        if (matches) {
+          return {
+            base64: matches[2],
+            mimeType: matches[1] || 'image/jpeg'
+          }
+        }
+        throw new Error('Invalid data URL format')
+      }
 
-    if (!userPhotoResponse.ok || !clothingImageResponse.ok) {
-      throw new Error('Failed to fetch images')
+      // Regular URL - fetch it
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image from URL: ${response.status}`)
+      }
+      const buffer = await response.arrayBuffer()
+      const base64 = Buffer.from(buffer).toString('base64')
+      const mimeType = response.headers.get('content-type') || 'image/jpeg'
+      return { base64, mimeType }
     }
 
-    const [userPhotoBuffer, clothingImageBuffer] = await Promise.all([
-      userPhotoResponse.arrayBuffer(),
-      clothingImageResponse.arrayBuffer()
+    // Get images as base64
+    const [userPhotoData, clothingImageData] = await Promise.all([
+      getImageBase64(userPhotoUrl),
+      getImageBase64(clothingImageUrl)
     ])
 
-    const userPhotoBase64 = Buffer.from(userPhotoBuffer).toString('base64')
-    const clothingImageBase64 = Buffer.from(clothingImageBuffer).toString('base64')
-
-    // Get MIME types
-    const userPhotoMimeType = userPhotoResponse.headers.get('content-type') || 'image/jpeg'
-    const clothingImageMimeType = clothingImageResponse.headers.get('content-type') || 'image/jpeg'
+    const userPhotoBase64 = userPhotoData.base64
+    const clothingImageBase64 = clothingImageData.base64
+    const userPhotoMimeType = userPhotoData.mimeType
+    const clothingImageMimeType = clothingImageData.mimeType
 
     // Call Gemini API for image generation
     // Use gemini-2.5-flash-image or gemini-3-pro-image-preview for image generation
@@ -92,6 +108,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    console.log('Calling Gemini API with model: gemini-2.5-flash-image')
+    console.log('Request payload size:', JSON.stringify(geminiRequest).length, 'bytes')
+    
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: {
@@ -102,29 +121,137 @@ export async function POST(request: NextRequest) {
 
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text()
-      console.error('Gemini API error:', errorText)
-      throw new Error(`Gemini API error: ${geminiResponse.status}`)
+      console.error('Gemini API error status:', geminiResponse.status)
+      console.error('Gemini API error response:', errorText)
+      throw new Error(`Gemini API error: ${geminiResponse.status} - ${errorText}`)
     }
 
     const geminiData = await geminiResponse.json()
+    console.log('Gemini API response received, candidates:', geminiData.candidates?.length || 0)
+    
+    // Log the full candidate structure (without huge base64 data)
+    if (geminiData.candidates?.[0]) {
+      const candidate = geminiData.candidates[0]
+      console.log('Candidate keys:', Object.keys(candidate))
+      console.log('Candidate finishReason:', candidate.finishReason)
+      if (candidate.content) {
+        console.log('Content keys:', Object.keys(candidate.content))
+        console.log('Content role:', candidate.content.role)
+      }
+    }
 
     // Extract the generated image from the response
     // Gemini image generation returns images in inline_data format
-    const generatedImagePart = geminiData.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inline_data?.mime_type?.startsWith('image/')
-    )
-
-    if (!generatedImagePart?.inline_data?.data) {
-      console.log('Gemini response structure:', JSON.stringify(geminiData, null, 2))
+    // Structure: candidates[0].content.parts[0].inline_data.data
+    const candidate = geminiData.candidates?.[0]
+    
+    if (!candidate) {
+      console.error('No candidate in response')
       return NextResponse.json(
-        { error: 'No image generated in response', response: geminiData },
+        { error: 'No candidate in Gemini response' },
         { status: 500 }
       )
     }
 
+    const content = candidate.content
+    if (!content) {
+      console.error('No content in candidate')
+      console.error('Candidate structure:', JSON.stringify(candidate, null, 2))
+      return NextResponse.json(
+        { error: 'Invalid response structure - no content' },
+        { status: 500 }
+      )
+    }
+
+    const parts = content.parts || []
+    console.log('Found', parts.length, 'parts in response')
+    console.log('Candidate finishReason:', candidate.finishReason)
+    
+    // Check if there's a text response explaining why image wasn't generated
+    const textParts = parts.filter((p: any) => p.text)
+    if (textParts.length > 0) {
+      console.log('Text parts found:', textParts.map((p: any) => p.text))
+    }
+    
+    // Log the actual structure of the first part to debug
+    if (parts.length > 0) {
+      const firstPart = parts[0]
+      console.log('First part keys:', Object.keys(firstPart))
+      console.log('First part structure (without data):', JSON.stringify({
+        ...firstPart,
+        inline_data: firstPart.inline_data ? {
+          mime_type: firstPart.inline_data.mime_type,
+          data_length: firstPart.inline_data.data?.length || 0,
+          data_preview: firstPart.inline_data.data?.substring(0, 50) || 'no data'
+        } : null
+      }, null, 2))
+    }
+    
+    // Log parts structure (without the huge base64 data)
+    parts.forEach((part: any, idx: number) => {
+      if (part.inline_data) {
+        console.log(`Part ${idx}: has inline_data, mime_type: ${part.inline_data.mime_type}, data length: ${part.inline_data.data?.length || 0}`)
+      } else if (part.text) {
+        console.log(`Part ${idx}: has text:`, part.text.substring(0, 200))
+      } else {
+        console.log(`Part ${idx}: type: unknown, keys:`, Object.keys(part), 'full part:', JSON.stringify(part))
+      }
+    })
+    
+    // Try direct access first (most common structure)
+    let imageData: string | undefined
+    let mimeType: string | undefined
+    
+    if (parts.length > 0 && parts[0].inline_data?.data) {
+      imageData = parts[0].inline_data.data
+      mimeType = parts[0].inline_data.mime_type
+      console.log('Found image in first part via direct access')
+    } else {
+      // Find the part with inline_data containing an image
+      const generatedImagePart = parts.find(
+        (part: any) => part.inline_data && part.inline_data.mime_type && part.inline_data.mime_type.startsWith('image/')
+      ) || parts.find((part: any) => part.inline_data)
+      
+      if (generatedImagePart?.inline_data?.data) {
+        imageData = generatedImagePart.inline_data.data
+        mimeType = generatedImagePart.inline_data.mime_type
+        console.log('Found image via search')
+      }
+    }
+
+    if (!imageData) {
+      console.error('No image data found in any part')
+      console.error('Parts summary:', parts.map((p: any, i: number) => ({
+        index: i,
+        hasInlineData: !!p.inline_data,
+        mimeType: p.inline_data?.mime_type,
+        hasData: !!p.inline_data?.data,
+        dataLength: p.inline_data?.data?.length || 0,
+        hasText: !!p.text,
+        textPreview: p.text?.substring(0, 200)
+      })))
+      
+      // Check if there's a text explanation
+      const textResponse = parts.find((p: any) => p.text)?.text
+      if (textResponse) {
+        console.error('Gemini returned text instead of image:', textResponse)
+        return NextResponse.json(
+          { error: 'Gemini returned text instead of image', text: textResponse, finishReason: candidate.finishReason },
+          { status: 500 }
+        )
+      }
+      
+      return NextResponse.json(
+        { error: 'No image data found in response', partsCount: parts.length, finishReason: candidate.finishReason },
+        { status: 500 }
+      )
+    }
+    
+    console.log('Successfully extracted image, mimeType:', mimeType, 'data length:', imageData?.length || 0)
+
     return NextResponse.json({
-      imageData: generatedImagePart.inline_data.data,
-      mimeType: generatedImagePart.inline_data.mime_type || 'image/png'
+      imageData: imageData,
+      mimeType: mimeType || 'image/png'
     })
   } catch (error: any) {
     console.error('Error generating image:', error)
