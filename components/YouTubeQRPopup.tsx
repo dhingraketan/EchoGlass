@@ -30,14 +30,24 @@ export default function YouTubeQRPopup() {
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
           .limit(1)
-          .single()
 
-        if (!error && data) {
-          setCurrentCommand(data)
+        if (error) {
+          // Table doesn't exist or RLS issue
+          if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
+            console.log('youtube_commands table does not exist yet')
+            return
+          }
+          console.error('Error checking for YouTube commands:', error)
+          return
+        }
+
+        if (data && data.length > 0) {
+          setCurrentCommand(data[0])
           setShowPopup(true)
         }
       } catch (err) {
         // Table might not exist, ignore
+        console.log('youtube_commands table does not exist yet')
       }
     }
 

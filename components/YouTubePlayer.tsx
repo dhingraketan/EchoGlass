@@ -21,14 +21,23 @@ export default function YouTubePlayer() {
           .not('youtube_url', 'is', null)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single()
 
-        if (!error && data && data.youtube_url) {
-          setYoutubeUrl(data.youtube_url)
+        if (error) {
+          // Table doesn't exist or RLS issue
+          if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
+            console.log('youtube_commands table does not exist yet')
+            return
+          }
+          console.error('Error fetching YouTube video:', error)
+          return
+        }
+
+        if (data && data.length > 0 && data[0].youtube_url) {
+          setYoutubeUrl(data[0].youtube_url)
         }
       } catch (err) {
         // Table might not exist or no video found
-        console.log('No YouTube video found')
+        console.log('No YouTube video found or table does not exist')
       }
     }
 
