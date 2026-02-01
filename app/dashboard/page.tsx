@@ -11,6 +11,10 @@ import NewsTicker from '@/components/NewsTicker'
 import StockTicker from '@/components/StockTicker'
 import YouTubePlayer from '@/components/YouTubePlayer'
 import YouTubeQRPopup from '@/components/YouTubeQRPopup'
+import PhotoTryoutQRPopup from '@/components/PhotoTryoutQRPopup'
+import PhotoTryoutCapture from '@/components/PhotoTryoutCapture'
+import PhotoTryoutResult from '@/components/PhotoTryoutResult'
+import PhotoTryoutTestButton from '@/components/PhotoTryoutTestButton'
 
 export default function DashboardPage() {
   const householdId = process.env.NEXT_PUBLIC_HOUSEHOLD_ID || 'default-household'
@@ -51,6 +55,12 @@ export default function DashboardPage() {
 
         {/* YouTube QR Code Popup */}
         <YouTubeQRPopup />
+
+        {/* Photo Tryout Components */}
+        <PhotoTryoutQRPopup />
+        <PhotoTryoutCapture />
+        <PhotoTryoutResult />
+        <PhotoTryoutTestButton />
 
         {/* Bottom Left - Status */}
         <div className="absolute bottom-36 left-8 right-96">

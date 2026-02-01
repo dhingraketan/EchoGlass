@@ -61,6 +61,13 @@ export async function POST(request: NextRequest) {
         console.log('YouTube command result:', result)
         break
       
+      case 'photo_tryout':
+      case 'tryout/photo':
+        console.log('Photo tryout action detected, calling handlePhotoTryoutCommand')
+        result = await handlePhotoTryoutCommand(data)
+        console.log('Photo tryout command result:', result)
+        break
+      
       default:
         // If no action specified, try to infer from the data
         if (data.text || data.body || data.item) {
@@ -346,5 +353,36 @@ async function handleYouTubeCommand(data: any) {
     ok: true,
     commandId: command.id,
     message: 'YouTube command received. Waiting for URL submission.'
+  }
+}
+
+async function handlePhotoTryoutCommand(data: any) {
+  console.log('handlePhotoTryoutCommand called with data:', data)
+  const supabase = createServerClient()
+  
+  // Create a new photo tryout command record
+  console.log('Inserting photo tryout command into database...')
+  const { data: command, error } = await supabase
+    .from('photo_tryout_commands')
+    .insert({
+      status: 'pending',
+      tryout_type: 'photo'
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error creating photo tryout command:', error)
+    if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
+      throw new Error('photo_tryout_commands table does not exist. Please create it in Supabase.')
+    }
+    throw new Error(`Failed to create photo tryout command: ${error.message}`)
+  }
+
+  console.log('Photo tryout command created successfully:', command)
+  return {
+    ok: true,
+    commandId: command.id,
+    message: 'Photo tryout command received. Waiting for clothing submission.'
   }
 }
