@@ -253,58 +253,6 @@ export default function PhotoTryoutResult() {
     // Note: We keep the command ID in shownCommandIdsRef so we don't show it again
   }
 
-  // Auto-close after 20 seconds when result is shown, with countdown
-  // Then show gesture detection prompt
-  useEffect(() => {
-    if (showResult && currentCommand) {
-      console.log('PhotoTryoutResult: Starting 20-second auto-close timer')
-      setCountdown(20)
-      
-      const countdownInterval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval)
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-
-      const gesturePromptTimer = setTimeout(() => {
-        console.log('PhotoTryoutResult: 20 seconds elapsed, showing gesture prompt')
-        setShowGesturePrompt(true)
-        setGestureCountdown(10)
-        startGestureDetection()
-      }, 20000) // 20 seconds
-
-      return () => {
-        clearInterval(countdownInterval)
-        clearTimeout(gesturePromptTimer)
-      }
-    }
-  }, [showResult, currentCommand, startGestureDetection])
-
-  // Gesture detection countdown and timeout
-  useEffect(() => {
-    if (showGesturePrompt && gestureResult === 'pending') {
-      const gestureInterval = setInterval(() => {
-        setGestureCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(gestureInterval)
-            // Timeout - default to no
-            handleGestureResult('no')
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-
-      return () => {
-        clearInterval(gestureInterval)
-      }
-    }
-  }, [showGesturePrompt, gestureResult, handleGestureResult])
-
   const handleGestureResult = useCallback(async (result: 'yes' | 'no') => {
     setGestureResult(result)
     
@@ -551,25 +499,70 @@ export default function PhotoTryoutResult() {
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        
-        // Wait for video to be ready
         videoRef.current.onloadedmetadata = () => {
-          console.log('PhotoTryoutResult: Video metadata loaded, starting detection')
           if (videoRef.current) {
             videoRef.current.play().then(() => {
-              console.log('PhotoTryoutResult: Video playing, starting head movement detection')
-              setTimeout(() => detectHeadMovement(), 500) // Small delay to ensure video is rendering
-            }).catch(err => {
-              console.error('PhotoTryoutResult: Error playing video:', err)
+              setTimeout(() => detectHeadMovement(), 500)
             })
           }
         }
       }
     } catch (error) {
       console.error('Error accessing camera for gesture detection:', error)
-      // If camera fails, default to no after timeout
     }
   }, [detectHeadMovement])
+
+  // Auto-close after 20 seconds when result is shown, with countdown
+  // Then show gesture detection prompt
+  useEffect(() => {
+    if (showResult && currentCommand) {
+      console.log('PhotoTryoutResult: Starting 20-second auto-close timer')
+      setCountdown(20)
+      
+      const countdownInterval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+
+      const gesturePromptTimer = setTimeout(() => {
+        console.log('PhotoTryoutResult: 20 seconds elapsed, showing gesture prompt')
+        setShowGesturePrompt(true)
+        setGestureCountdown(10)
+        startGestureDetection()
+      }, 20000) // 20 seconds
+
+      return () => {
+        clearInterval(countdownInterval)
+        clearTimeout(gesturePromptTimer)
+      }
+    }
+  }, [showResult, currentCommand, startGestureDetection])
+
+  // Gesture detection countdown and timeout
+  useEffect(() => {
+    if (showGesturePrompt && gestureResult === 'pending') {
+      const gestureInterval = setInterval(() => {
+        setGestureCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(gestureInterval)
+            // Timeout - default to no
+            handleGestureResult('no')
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+
+      return () => {
+        clearInterval(gestureInterval)
+      }
+    }
+  }, [showGesturePrompt, gestureResult, handleGestureResult])
 
   if (!showResult || !currentCommand || !currentCommand.result_image_url) {
     return null
