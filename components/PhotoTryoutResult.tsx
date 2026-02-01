@@ -333,134 +333,138 @@ export default function PhotoTryoutResult() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
-    // Use MediaPipe Face Detection (simpler than Face Mesh)
-    const loadMediaPipe = async () => {
-      try {
-        // @ts-ignore
-        if (window.FaceDetection) {
-          startDetection()
-          return
-        }
+    // Simple motion-based head movement detection
+    let previousFrame: ImageData | null = null
+    let motionHistory: { vertical: number; horizontal: number; timestamp: number }[] = []
+    let nodCount = 0
+    let shakeCount = 0
+    let frameCount = 0
+    const motionThreshold = 30 // Adjust based on testing
 
-        // Load MediaPipe Face Detection from CDN
-        const script = document.createElement('script')
-        script.type = 'module'
-        script.innerHTML = `
-          import { FaceDetection } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3';
-          window.FaceDetectionModule = { FaceDetection };
-        `
-        script.onload = () => startDetection()
-        document.head.appendChild(script)
-      } catch (err) {
-        console.error('Error loading MediaPipe:', err)
-        // Fallback to simple motion detection
-        startSimpleDetection()
+    const detect = () => {
+      if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current)
+        }
+        return
       }
-    }
 
-    const startSimpleDetection = () => {
-      // Fallback: Simple motion-based detection
-      let previousFrame: ImageData | null = null
-      let headPositions: { x: number; y: number }[] = []
-      let nodCount = 0
-      let shakeCount = 0
-      let frameCount = 0
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-      const detect = () => {
-        if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
-          if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current)
-          }
-          return
-        }
+      if (previousFrame) {
+        // Focus on center region where face typically is
+        const centerX = Math.floor(canvas.width / 2)
+        const centerY = Math.floor(canvas.height / 2)
+        const regionSize = 150
 
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        let verticalMotion = 0
+        let horizontalMotion = 0
+        let sampleCount = 0
 
-        if (previousFrame) {
-          // Calculate motion in center region (where face typically is)
-          const centerX = Math.floor(canvas.width / 2)
-          const centerY = Math.floor(canvas.height / 2)
-          const regionSize = 100
-
-          let verticalMotion = 0
-          let horizontalMotion = 0
-
-          for (let y = centerY - regionSize; y < centerY + regionSize; y += 5) {
-            for (let x = centerX - regionSize; x < centerX + regionSize; x += 5) {
-              if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
-                const idx = (y * canvas.width + x) * 4
-                const prevIdx = (y * canvas.width + x) * 4
-                
-                const currentBrightness = (currentFrame.data[idx] + currentFrame.data[idx + 1] + currentFrame.data[idx + 2]) / 3
-                const prevBrightness = (previousFrame.data[prevIdx] + previousFrame.data[prevIdx + 1] + previousFrame.data[prevIdx + 2]) / 3
-                
-                const diff = Math.abs(currentBrightness - prevBrightness)
-                verticalMotion += diff
+        // Sample motion in center region
+        for (let y = centerY - regionSize; y < centerY + regionSize; y += 8) {
+          for (let x = centerX - regionSize; x < centerX + regionSize; x += 8) {
+            if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
+              const idx = (y * canvas.width + x) * 4
+              const prevIdx = idx
+              
+              // Calculate brightness difference
+              const currentBrightness = (
+                currentFrame.data[idx] + 
+                currentFrame.data[idx + 1] + 
+                currentFrame.data[idx + 2]
+              ) / 3
+              
+              const prevBrightness = (
+                previousFrame.data[prevIdx] + 
+                previousFrame.data[prevIdx + 1] + 
+                previousFrame.data[prevIdx + 2]
+              ) / 3
+              
+              const diff = Math.abs(currentBrightness - prevBrightness)
+              
+              // Determine if motion is more vertical or horizontal based on position
+              const distFromCenterX = Math.abs(x - centerX)
+              const distFromCenterY = Math.abs(y - centerY)
+              
+              if (distFromCenterY < distFromCenterX) {
+                // More horizontal motion
                 horizontalMotion += diff
-              }
-            }
-          }
-
-          frameCount++
-          if (frameCount % 5 === 0) {
-            headPositions.push({ 
-              x: horizontalMotion / 1000, 
-              y: verticalMotion / 1000 
-            })
-            if (headPositions.length > 20) {
-              headPositions.shift()
-            }
-
-            if (headPositions.length >= 10) {
-              // Detect vertical movement (nodding)
-              const recentY = headPositions.slice(-10).map(p => p.y)
-              const avgY = recentY.reduce((a, b) => a + b, 0) / recentY.length
-              const varianceY = recentY.reduce((sum, y) => sum + Math.pow(y - avgY, 2), 0) / recentY.length
-
-              if (varianceY > 50) {
-                nodCount++
-                shakeCount = Math.max(0, shakeCount - 1)
-                if (nodCount >= 8) {
-                  handleGestureResult('yes')
-                  return
-                }
               } else {
-                nodCount = Math.max(0, nodCount - 1)
+                // More vertical motion
+                verticalMotion += diff
               }
-
-              // Detect horizontal movement (shaking)
-              const recentX = headPositions.slice(-10).map(p => p.x)
-              const avgX = recentX.reduce((a, b) => a + b, 0) / recentX.length
-              const varianceX = recentX.reduce((sum, x) => sum + Math.pow(x - avgX, 2), 0) / recentX.length
-
-              if (varianceX > 50) {
-                shakeCount++
-                nodCount = Math.max(0, nodCount - 1)
-                if (shakeCount >= 8) {
-                  handleGestureResult('no')
-                  return
-                }
-              } else {
-                shakeCount = Math.max(0, shakeCount - 1)
-              }
+              
+              sampleCount++
             }
           }
         }
 
-        previousFrame = currentFrame
-        animationFrameRef.current = requestAnimationFrame(detect)
+        // Normalize motion values
+        const avgVerticalMotion = verticalMotion / sampleCount
+        const avgHorizontalMotion = horizontalMotion / sampleCount
+
+        frameCount++
+        
+        // Analyze motion every 5 frames
+        if (frameCount % 5 === 0) {
+          const timestamp = Date.now()
+          motionHistory.push({
+            vertical: avgVerticalMotion,
+            horizontal: avgHorizontalMotion,
+            timestamp
+          })
+
+          // Keep only last 2 seconds of motion history
+          motionHistory = motionHistory.filter(m => timestamp - m.timestamp < 2000)
+
+          if (motionHistory.length >= 10) {
+            // Analyze recent motion patterns
+            const recentVertical = motionHistory.slice(-10).map(m => m.vertical)
+            const recentHorizontal = motionHistory.slice(-10).map(m => m.horizontal)
+
+            // Calculate variance to detect consistent movement
+            const avgV = recentVertical.reduce((a, b) => a + b, 0) / recentVertical.length
+            const varianceV = recentVertical.reduce((sum, v) => sum + Math.pow(v - avgV, 2), 0) / recentVertical.length
+
+            const avgH = recentHorizontal.reduce((a, b) => a + b, 0) / recentHorizontal.length
+            const varianceH = recentHorizontal.reduce((sum, h) => sum + Math.pow(h - avgH, 2), 0) / recentHorizontal.length
+
+            // Detect nodding (vertical movement pattern)
+            if (varianceV > motionThreshold && avgV > motionThreshold / 2) {
+              nodCount++
+              shakeCount = Math.max(0, shakeCount - 1)
+              console.log('Nodding detected:', nodCount)
+              if (nodCount >= 6) {
+                handleGestureResult('yes')
+                return
+              }
+            } else {
+              nodCount = Math.max(0, nodCount - 1)
+            }
+
+            // Detect shaking (horizontal movement pattern)
+            if (varianceH > motionThreshold && avgH > motionThreshold / 2) {
+              shakeCount++
+              nodCount = Math.max(0, nodCount - 1)
+              console.log('Shaking detected:', shakeCount)
+              if (shakeCount >= 6) {
+                handleGestureResult('no')
+                return
+              }
+            } else {
+              shakeCount = Math.max(0, shakeCount - 1)
+            }
+          }
+        }
       }
 
-      detect()
+      previousFrame = currentFrame
+      animationFrameRef.current = requestAnimationFrame(detect)
     }
 
-    const startDetection = () => {
-      // Try MediaPipe first, fallback to simple detection
-      startSimpleDetection()
-    }
-
-    loadMediaPipe()
+    detect()
   }
 
   const handleGestureResult = async (result: 'yes' | 'no') => {
