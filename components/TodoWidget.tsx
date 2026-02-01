@@ -69,7 +69,11 @@ export default function TodoWidget({ householdId }: { householdId: string }) {
 
     // Subscribe to real-time changes
     const channel = supabase
-      .channel('todo-changes')
+      .channel('todo-changes', {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -77,13 +81,22 @@ export default function TodoWidget({ householdId }: { householdId: string }) {
           schema: 'public',
           table: 'todo'
         },
-        () => {
+        (payload: any) => {
+          console.log('Todo real-time event received:', payload)
           fetchTodos()
         }
       )
-      .subscribe()
+      .subscribe((status: string) => {
+        console.log('Todo subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to todo changes')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Todo subscription error - check if Realtime is enabled for todo table')
+        }
+      })
 
     return () => {
+      console.log('Cleaning up todo subscription')
       supabase.removeChannel(channel)
     }
   }, [])

@@ -9,7 +9,13 @@ export function createClient() {
     return null as any
   }
 
-  return createSupabaseClient(supabaseUrl, supabaseAnonKey)
+  return createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
+    }
+  })
 }
 
 export function hasSupabaseConfig(): boolean {

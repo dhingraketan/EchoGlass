@@ -120,7 +120,11 @@ export default function CalendarWidget({ householdId }: { householdId: string })
 
     // Subscribe to real-time changes
     const channel = supabase
-      .channel('calendar-changes')
+      .channel('calendar-changes', {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -128,13 +132,22 @@ export default function CalendarWidget({ householdId }: { householdId: string })
           schema: 'public',
           table: 'calendar'
         },
-        () => {
+        (payload: any) => {
+          console.log('Calendar real-time event received:', payload)
           fetchEvents()
         }
       )
-      .subscribe()
+      .subscribe((status: string) => {
+        console.log('Calendar subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to calendar changes')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Calendar subscription error - check if Realtime is enabled for calendar table')
+        }
+      })
 
     return () => {
+      console.log('Cleaning up calendar subscription')
       supabase.removeChannel(channel)
     }
   }, [])
