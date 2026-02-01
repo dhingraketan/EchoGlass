@@ -14,7 +14,6 @@ import YouTubeQRPopup from '@/components/YouTubeQRPopup'
 import PhotoTryoutQRPopup from '@/components/PhotoTryoutQRPopup'
 import PhotoTryoutCapture from '@/components/PhotoTryoutCapture'
 import PhotoTryoutResult from '@/components/PhotoTryoutResult'
-import PhotoTryoutTestButton from '@/components/PhotoTryoutTestButton'
 
 export default function DashboardPage() {
   const householdId = process.env.NEXT_PUBLIC_HOUSEHOLD_ID || 'default-household'
@@ -60,7 +59,6 @@ export default function DashboardPage() {
         <PhotoTryoutQRPopup />
         <PhotoTryoutCapture />
         <PhotoTryoutResult />
-        <PhotoTryoutTestButton />
 
         {/* Bottom Left - Status */}
         <div className="absolute bottom-36 left-8 right-96">

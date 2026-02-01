@@ -224,12 +224,20 @@ class PhotoTryOutIntentHandler(AbstractRequestHandler):
         return is_intent_name("PhotoTryOutIntent")(handler_input)
 
     def handle(self, handler_input):
-        
-        speech_text = f"Let's do a photo try out."
-        logger.info("photo try out")
+        logger.info("PhotoTryOutIntentHandler: Handling Photo Tryout intent")
+        try:
+            logger.info("PhotoTryOutIntentHandler: Calling Vercel API with action='photo_tryout'")
+            result = call_vercel("photo_tryout", {})
+            logger.info(f"PhotoTryOutIntentHandler: API call successful, result: {result}")
+            speech_text = f"Starting photo tryout. Please scan the QR code or submit your clothing photo."
+        except Exception as e:
+            logger.error(f"PhotoTryOutIntentHandler: Failed to trigger photo tryout command: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"PhotoTryOutIntentHandler: Traceback: {traceback.format_exc()}")
+            speech_text = f"Sorry, I couldn't start the photo tryout. Please try again."
 
+        logger.info("PhotoTryOutIntentHandler: Response speech: " + speech_text)
         handler_input.response_builder.speak(speech_text)
-        # call_vercel("complete", {"item": item})
 
         return handler_input.response_builder.response
 
