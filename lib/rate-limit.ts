@@ -14,7 +14,10 @@ const RATE_LIMIT_MAX = 100 // requests per window
 if (typeof setInterval !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
-    for (const [key, entry] of rateLimitMap.entries()) {
+    // Use Array.from to convert Map entries to array for ES5 compatibility
+    const entries = Array.from(rateLimitMap.entries())
+    for (let i = 0; i < entries.length; i++) {
+      const [key, entry] = entries[i]
       if (now > entry.resetTime) {
         rateLimitMap.delete(key)
       }
