@@ -75,24 +75,9 @@ export default function PhotoTryoutResult() {
   
   const shownCommandIdsRef = useRef<Set<string>>(loadShownCommandIds())
 
-  // Helper function to check if we should show a command
-  const shouldShowCommand = (command: PhotoTryoutCommand): boolean => {
-    // Don't show if we've already shown this command
-    if (shownCommandIdsRef.current.has(command.id)) {
-      return false
-    }
-    
-    // Only show if it has a result image
-    if (!command.result_image_url) {
-      return false
-    }
-    
-    return true
-  }
-
   // Helper function to show a command
-  const showCommand = (command: PhotoTryoutCommand) => {
-    if (shouldShowCommand(command)) {
+  const showCommand = useRef((command: PhotoTryoutCommand) => {
+    if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
       console.log('PhotoTryoutResult: Showing result for command:', command.id)
       shownCommandIdsRef.current.add(command.id)
       saveShownCommandId(command.id) // Persist to localStorage
@@ -104,7 +89,7 @@ export default function PhotoTryoutResult() {
       setShowResult(true)
       showingResultRef.current = true
     }
-  }
+  }).current
 
   useEffect(() => {
     const supabase = supabaseRef.current
@@ -143,7 +128,8 @@ export default function PhotoTryoutResult() {
         if (data && data.length > 0) {
           // Find the first command we haven't shown yet
           for (const command of data) {
-            if (shouldShowCommand(command)) {
+            // Check if we should show this command
+            if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
               console.log('PhotoTryoutResult: Found new completed command via polling:', command.id, 'result_image_url length:', command.result_image_url?.length || 0)
               showCommand(command)
               break // Only show one at a time
@@ -198,7 +184,7 @@ export default function PhotoTryoutResult() {
               
               console.log('PhotoTryoutResult: Fetched full command from database - has result_image_url:', !!fullCommand?.result_image_url, 'length:', fullCommand?.result_image_url?.length || 0)
               
-              if (fullCommand && shouldShowCommand(fullCommand)) {
+              if (fullCommand && !shownCommandIdsRef.current.has(fullCommand.id) && fullCommand.result_image_url) {
                 console.log('PhotoTryoutResult: Fetched full command from database, showing result')
                 showCommand(fullCommand)
                 return
@@ -226,10 +212,11 @@ export default function PhotoTryoutResult() {
             return
           }
           
-          if (shouldShowCommand(command)) {
+          // Check if we should show this command
+          if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
             showCommand(command)
           } else {
-            console.log('PhotoTryoutResult: Update received but command rejected by shouldShowCommand')
+            console.log('PhotoTryoutResult: Update received but command rejected')
             console.log('PhotoTryoutResult: Shown command IDs:', Array.from(shownCommandIdsRef.current))
             console.log('PhotoTryoutResult: Current showingResultRef:', showingResultRef.current)
             console.log('PhotoTryoutResult: Command ID:', command.id, 'already shown?', shownCommandIdsRef.current.has(command.id))
@@ -277,12 +264,14 @@ export default function PhotoTryoutResult() {
         setGestureCountdown(10)
         startGestureDetection()
       }, 20000) // 20 seconds
+    // eslint-disable-next-line react-hooks/exhaustive-deps
 
       return () => {
         clearInterval(countdownInterval)
         clearTimeout(gesturePromptTimer)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showResult, currentCommand])
 
   // Gesture detection countdown and timeout
@@ -295,6 +284,7 @@ export default function PhotoTryoutResult() {
             // Timeout - default to no
             handleGestureResult('no')
             return 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
           }
           return prev - 1
         })
@@ -304,9 +294,10 @@ export default function PhotoTryoutResult() {
         clearInterval(gestureInterval)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showGesturePrompt, gestureResult])
 
-  const startGestureDetection = async () => {
+  const startGestureDetection = useRef(async () => {
     try {
       setDetectionStatus('Accessing camera...')
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -324,7 +315,7 @@ export default function PhotoTryoutResult() {
       setDetectionStatus('Camera access failed. Will timeout after 10 seconds.')
       // If camera fails, default to no after timeout
     }
-  }
+  }).current
 
   const detectHeadMovement = () => {
     if (!videoRef.current || !canvasRef.current) return
@@ -340,12 +331,12 @@ export default function PhotoTryoutResult() {
     // Use Face Detection API if available, otherwise fallback to motion detection
     // @ts-ignore
     if (window.FaceDetector) {
-      useFaceDetectionAPI()
+      startFaceDetection()
     } else {
-      useMotionDetection()
+      startMotionDetection()
     }
 
-    function useFaceDetectionAPI() {
+    function startFaceDetection() {
       setDetectionStatus('Using Face Detection API')
       // @ts-ignore
       const faceDetector = new window.FaceDetector({
@@ -433,7 +424,7 @@ export default function PhotoTryoutResult() {
         } catch (err) {
           console.error('Face detection error:', err)
           setDetectionStatus('Detection error. Using motion detection...')
-          useMotionDetection()
+          startMotionDetection()
           return
         }
 
@@ -443,7 +434,7 @@ export default function PhotoTryoutResult() {
       detect()
     }
 
-    function useMotionDetection() {
+    function startMotionDetection() {
       setDetectionStatus('Using motion detection')
       let previousFrame: ImageData | null = null
       let centerOfMassHistory: { x: number; y: number }[] = []
@@ -567,7 +558,7 @@ export default function PhotoTryoutResult() {
     }
   }
 
-  const handleGestureResult = async (result: 'yes' | 'no') => {
+  const handleGestureResult = useRef(async (result: 'yes' | 'no') => {
     setGestureResult(result)
     
     // Stop camera
@@ -579,7 +570,9 @@ export default function PhotoTryoutResult() {
       cancelAnimationFrame(animationFrameRef.current)
     }
 
-    if (result === 'yes' && currentCommand) {
+    // Get current command from ref to avoid stale closure
+    const command = currentCommand
+    if (result === 'yes' && command) {
       // Save to closet table
       try {
         const supabase = supabaseRef.current
@@ -587,10 +580,10 @@ export default function PhotoTryoutResult() {
           const { error } = await supabase
             .from('closet')
             .insert({
-              clothing_url: currentCommand.clothing_url || null,
-              clothing_image_url: currentCommand.clothing_image_url || '',
-              tryout_result_image_url: currentCommand.result_image_url || null,
-              tryout_command_id: currentCommand.id
+              clothing_url: command.clothing_url || null,
+              clothing_image_url: command.clothing_image_url || '',
+              tryout_result_image_url: command.result_image_url || null,
+              tryout_command_id: command.id
             })
 
           if (error) {
@@ -615,7 +608,7 @@ export default function PhotoTryoutResult() {
       setGestureResult('pending')
       headPositionRef.current = []
     }, 2000)
-  }
+  }).current
 
   if (!showResult || !currentCommand || !currentCommand.result_image_url) {
     return null
@@ -640,6 +633,7 @@ export default function PhotoTryoutResult() {
               
               {/* Image */}
               <div className="relative mb-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={currentCommand.result_image_url}
                   alt="Tryout Result"

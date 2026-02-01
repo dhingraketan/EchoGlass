@@ -120,6 +120,7 @@ export default function PhotoTryoutCapture() {
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCapture, currentCommand, countdown, capturedPhoto])
 
   const startCamera = async () => {
@@ -144,7 +145,7 @@ export default function PhotoTryoutCapture() {
     }
   }
 
-  const startCountdown = () => {
+  const startCountdown = useRef(() => {
     if (countdownStartedRef.current) {
       return // Already started
     }
@@ -160,7 +161,7 @@ export default function PhotoTryoutCapture() {
         return prev - 1
       })
     }, 1000)
-  }
+  }).current
 
   const capturePhoto = () => {
     if (!videoRef.current) return
