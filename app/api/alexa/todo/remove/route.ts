@@ -25,35 +25,65 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    // Support both old format (text) and new format (body/item)
+    // Support both id and text/body/item for finding the todo
+    const todoId = body.id || body.todoId
     const text = body.text || body.body || body.item
 
-    // Validate input
-    if (!text || typeof text !== 'string') {
+    // Validate input - need either id or text to find the todo
+    if (!todoId && !text) {
       return NextResponse.json(
-        { error: 'Invalid input: text/body/item is required' },
+        { error: 'Invalid input: id or text/body/item is required' },
         { status: 400 }
       )
     }
 
     const supabase = createServerClient()
 
-    // Insert todo into the new todo table schema
-    const { data: todo, error } = await supabase
-      .from('todo')
-      .insert({
-        body: text,
-        completed: false
-      })
-      .select()
-      .single()
+    let error
+    let deletedCount = 0
+
+    if (todoId) {
+      // Delete by ID
+      const { error: deleteError, count } = await supabase
+        .from('todo')
+        .delete()
+        .eq('id', todoId)
+        .select()
+
+      error = deleteError
+      deletedCount = count || 0
+    } else {
+      // Delete by matching text (delete first match)
+      const { data: todos, error: findError } = await supabase
+        .from('todo')
+        .select('id')
+        .ilike('body', `%${text}%`)
+        .limit(1)
+
+      if (findError) {
+        error = findError
+      } else if (todos && todos.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('todo')
+          .delete()
+          .eq('id', todos[0].id)
+
+        error = deleteError
+        deletedCount = 1
+      } else {
+        return NextResponse.json(
+          { error: 'Todo not found' },
+          { status: 404 }
+        )
+      }
+    }
 
     if (error) {
-      // Try to log to command_logs if table exists, but don't fail if it doesn't
+      // Try to log to command_logs if table exists
       try {
         await supabase.from('command_logs').insert({
           source: 'alexa',
-          command_type: 'todo/add',
+          command_type: 'todo/remove',
           payload: body,
           status: 'error',
           message: error.message,
@@ -64,7 +94,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { error: 'Failed to create todo', details: error.message },
+        { error: 'Failed to remove todo', details: error.message },
         { status: 500 }
       )
     }
@@ -73,10 +103,10 @@ export async function POST(request: NextRequest) {
     try {
       await supabase.from('command_logs').insert({
         source: 'alexa',
-        command_type: 'todo/add',
+        command_type: 'todo/remove',
         payload: body,
         status: 'ok',
-        message: 'Todo created successfully',
+        message: 'Todo removed successfully',
         household_id: process.env.NEXT_PUBLIC_HOUSEHOLD_ID || '00000000-0000-0000-0000-000000000000'
       })
     } catch (logError) {
@@ -85,21 +115,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      todoId: todo.id
+      deleted: deletedCount > 0
     })
   } catch (error: any) {
-    const supabase = createServerClient()
-    await supabase.from('command_logs').insert({
-      source: 'alexa',
-      command_type: 'todo/add',
-      payload: {},
-      status: 'error',
-      message: error.message || 'Unknown error',
-      household_id: '00000000-0000-0000-0000-000000000000'
-    })
-
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error.message },
       { status: 500 }
     )
   }

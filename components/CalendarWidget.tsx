@@ -1,11 +1,25 @@
 'use client'
 
-import { Event } from '@/lib/types'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+interface CalendarItem {
+  id: number
+  created_at: string
+  task: string
+  date: string | null
+  time: string | null
+}
+
+interface DisplayEvent {
+  id: string
+  title: string
+  start_at: string
+  end_at: string | null
+}
+
 export default function CalendarWidget({ householdId }: { householdId: string }) {
-  const [events, setEvents] = useState<Event[]>([])
+  const [events, setEvents] = useState<DisplayEvent[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -16,180 +30,117 @@ export default function CalendarWidget({ householdId }: { householdId: string })
     }
 
     const fetchEvents = async () => {
-      const now = new Date()
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('household_id', householdId)
-        .gte('start_at', now.toISOString())
-        .order('start_at', { ascending: true })
-        .limit(4)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD format
 
-      // If table exists and has data, use it
-      // Check for 404 or table not found errors
+      console.log('Fetching calendar events for date >=', todayStr)
+
+      const { data, error } = await supabase
+        .from('calendar')
+        .select('*')
+        .gte('date', todayStr) // Only future dates or today
+        .order('date', { ascending: true })
+        .order('time', { ascending: true, nullsFirst: false })
+        .limit(10) // Get more to filter properly
+
       if (error) {
-        // Table doesn't exist (404) or other error - use mock data
-        if (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('relation') || error.message?.includes('does not exist')) {
-          console.warn('events table not available, using mock data')
-        } else {
-          console.warn('Error fetching events:', error)
+        console.error('Error fetching calendar events:', error)
+        console.error('Error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        })
+        // Check if table doesn't exist
+        if (error.code === 'PGRST116' || error.code === 'PGRST205' || error.message?.includes('404') || error.message?.includes('relation') || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          console.error('calendar table not found - make sure the table exists in Supabase')
         }
-      } else if (data && data.length > 0) {
-        setEvents(data)
+        // Check if RLS is blocking access
+        if (error.code === '42501' || error.message?.includes('permission denied') || error.message?.includes('RLS')) {
+          console.error('RLS (Row Level Security) is blocking access. You need to either:')
+          console.error('1. Disable RLS on the calendar table: ALTER TABLE calendar DISABLE ROW LEVEL SECURITY;')
+          console.error('2. Create a policy: ALTER TABLE calendar ENABLE ROW LEVEL SECURITY;')
+          console.error('   CREATE POLICY "Allow public read" ON calendar FOR SELECT USING (true);')
+        }
+        setEvents([])
         setLoading(false)
         return
       }
 
-      // Mock data for testing UI - use when table doesn't exist or no data
-      const currentTime = new Date()
-      const today = new Date(currentTime)
-      today.setHours(currentTime.getHours() + 2, 0, 0, 0) // 2 hours from now
-      
-      const tomorrow = new Date(currentTime)
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      tomorrow.setHours(10, 0, 0, 0) // Tomorrow 10 AM
-      
-      const dayAfterTomorrow = new Date(currentTime)
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2)
-      dayAfterTomorrow.setHours(14, 0, 0, 0) // 2 days from now, 2 PM
-      
-      const feb2 = new Date(currentTime)
-      feb2.setMonth(1, 2) // February 2
-      feb2.setHours(14, 0, 0, 0)
-      if (feb2.getTime() < currentTime.getTime()) {
-        feb2.setFullYear(feb2.getFullYear() + 1) // If Feb 2 has passed, use next year
+      console.log('Calendar query result:', { dataCount: data?.length || 0, data: data })
+
+      if (data && data.length > 0) {
+        // Convert calendar items to display events
+        const displayEvents: DisplayEvent[] = data
+          .map((item: CalendarItem) => {
+            // Combine date and time into start_at ISO string
+            let startAt = ''
+            if (item.date) {
+              if (item.time) {
+                // Combine date and time: "2024-01-15" + "14:30:00" = "2024-01-15T14:30:00"
+                startAt = `${item.date}T${item.time}`
+              } else {
+                // If no time, use start of day
+                startAt = `${item.date}T00:00:00`
+              }
+            } else {
+              // If no date, skip this item
+              return null
+            }
+
+            // Create a Date object to check if it's in the future
+            const eventDate = new Date(startAt)
+            const now = new Date()
+            
+            // Only include if it's today or in the future
+            if (eventDate >= now) {
+              return {
+                id: item.id.toString(),
+                title: item.task,
+                start_at: eventDate.toISOString(),
+                end_at: null // No end_at in calendar schema
+              }
+            }
+            return null
+          })
+          .filter((e: DisplayEvent | null): e is DisplayEvent => e !== null)
+          .slice(0, 4) // Limit to 4 events
+
+        setEvents(displayEvents)
+        console.log('Fetched and processed calendar events:', displayEvents.length, displayEvents)
+      } else {
+        console.log('No calendar events found in database')
+        setEvents([])
       }
-      
-      const feb4 = new Date(currentTime)
-      feb4.setMonth(1, 4) // February 4
-      feb4.setHours(10, 0, 0, 0)
-      if (feb4.getTime() < currentTime.getTime()) {
-        feb4.setFullYear(feb4.getFullYear() + 1) // If Feb 4 has passed, use next year
-      }
-      
-      const mockEvents: Event[] = [
-        {
-          id: 'mock-1',
-          title: 'Prod Meeting',
-          start_at: today.toISOString(),
-          end_at: new Date(today.getTime() + 60 * 60 * 1000).toISOString(), // +1 hour
-          location: 'Conference Room A',
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-2',
-          title: 'Team Standup',
-          start_at: tomorrow.toISOString(),
-          end_at: new Date(tomorrow.getTime() + 30 * 60 * 1000).toISOString(), // +30 min
-          location: null,
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-3',
-          title: 'Client Presentation',
-          start_at: new Date(tomorrow.getTime() + 2 * 60 * 60 * 1000).toISOString(), // Tomorrow 12 PM
-          end_at: new Date(tomorrow.getTime() + 3 * 60 * 60 * 1000).toISOString(), // +1 hour
-          location: 'Main Office',
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-4',
-          title: 'Design Review',
-          start_at: new Date(tomorrow.getTime() + 4 * 60 * 60 * 1000).toISOString(), // Tomorrow 2 PM
-          end_at: new Date(tomorrow.getTime() + 5 * 60 * 60 * 1000).toISOString(), // +1 hour
-          location: 'Design Studio',
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-5',
-          title: 'Code Review',
-          start_at: dayAfterTomorrow.toISOString(),
-          end_at: new Date(dayAfterTomorrow.getTime() + 60 * 60 * 1000).toISOString(), // +1 hour
-          location: null,
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-6',
-          title: 'Budget Meeting',
-          start_at: feb2.toISOString(),
-          end_at: new Date(feb2.getTime() + 90 * 60 * 1000).toISOString(), // +1.5 hours
-          location: 'Finance Office',
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'mock-7',
-          title: 'Sprint Planning',
-          start_at: feb4.toISOString(),
-          end_at: new Date(feb4.getTime() + 2 * 60 * 60 * 1000).toISOString(), // +2 hours
-          location: 'Conference Room B',
-          notes: null,
-          source: 'manual',
-          household_id: householdId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      ].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()) // Sort by start_at ascending
-      
-      setEvents(mockEvents)
       setLoading(false)
     }
 
     fetchEvents()
 
-    // Subscribe to real-time changes (only if table exists)
-    try {
-      const channel = supabase
-        .channel('events-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'events',
-            filter: `household_id=eq.${householdId}`
-          },
-          () => {
-            fetchEvents()
-          }
-        )
-        .subscribe()
+    // Subscribe to real-time changes
+    const channel = supabase
+      .channel('calendar-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'calendar'
+        },
+        () => {
+          fetchEvents()
+        }
+      )
+      .subscribe()
 
-      return () => {
-        supabase.removeChannel(channel)
-      }
-    } catch (err) {
-      // Table doesn't exist - no subscription
-      return () => {}
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [householdId])
+  }, [])
 
-  const formatEventTime = (startAt: string, endAt?: string) => {
+  const formatEventTime = (startAt: string, endAt?: string | null) => {
     const startDate = new Date(startAt)
-    const endDate = endAt ? new Date(endAt) : null
     
     const startTime = startDate.toLocaleTimeString('en-US', { 
       hour: 'numeric', 
@@ -197,13 +148,8 @@ export default function CalendarWidget({ householdId }: { householdId: string })
       hour12: true 
     })
     
-    const endTime = endDate ? endDate.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    }) : null
-    
-    return endTime ? `${startTime} - ${endTime}` : startTime
+    // Since calendar table doesn't have end_at, just show start time
+    return startTime
   }
 
   const formatDateHeader = (dateString: string) => {
@@ -215,8 +161,8 @@ export default function CalendarWidget({ householdId }: { householdId: string })
     })
   }
 
-  const groupEventsByDate = (events: Event[]) => {
-    const grouped = new Map<string, Event[]>()
+  const groupEventsByDate = (events: DisplayEvent[]) => {
+    const grouped = new Map<string, DisplayEvent[]>()
     events.forEach(event => {
       const date = new Date(event.start_at)
       const dateKey = date.toDateString()
@@ -271,11 +217,8 @@ export default function CalendarWidget({ householdId }: { householdId: string })
                       <div className="text-white whitespace-nowrap flex items-center gap-2">
                         <span className="inline-block w-32 text-left">{event.title}</span>
                         <span className="font-bold">::</span>
-                        <span>{formatEventTime(event.start_at, event.end_at || undefined)}</span>
+                        <span>{formatEventTime(event.start_at, event.end_at)}</span>
                       </div>
-                      {event.location && (
-                        <div className="text-white/60 text-xs mt-0.5">{event.location}</div>
-                      )}
                     </div>
                   ))}
                 </div>

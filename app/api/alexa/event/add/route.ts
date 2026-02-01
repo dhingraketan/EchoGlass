@@ -35,62 +35,79 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { householdId, title, startAt, endAt, location, notes } = body
+    // Support multiple formats: task/title, date, time
+    // Also support ReminderIntent format with extracted JSON
+    const task = body.task || body.title || body.item
+    let date = body.date || null
+    let time = body.time || null
+
+    // If startAt is provided (old format), parse it into date and time
+    if (body.startAt && !date) {
+      const startDate = new Date(body.startAt)
+      date = startDate.toISOString().split('T')[0] // YYYY-MM-DD
+      const timeStr = startDate.toTimeString().split(' ')[0] // HH:MM:SS
+      time = timeStr.substring(0, 5) // HH:MM
+    }
 
     // Validate input
-    if (!householdId || !title || !startAt) {
+    if (!task || typeof task !== 'string') {
       return NextResponse.json(
-        { error: 'Invalid input: householdId, title, and startAt are required' },
+        { error: 'Invalid input: task/title/item is required' },
         { status: 400 }
       )
     }
 
     const supabase = createServerClient()
 
-    // Insert event
-    const { data: event, error } = await supabase
-      .from('events')
+    // Insert calendar event into the new calendar table schema
+    const { data: calendarEvent, error } = await supabase
+      .from('calendar')
       .insert({
-        household_id: householdId,
-        title,
-        start_at: startAt,
-        end_at: endAt || null,
-        location: location || null,
-        notes: notes || null,
-        source: 'alexa'
+        task: task,
+        date: date || null,
+        time: time || null
       })
       .select()
       .single()
 
     if (error) {
-      await supabase.from('command_logs').insert({
-        source: 'alexa',
-        command_type: 'event/add',
-        payload: body,
-        status: 'error',
-        message: error.message,
-        household_id: householdId
-      })
+      // Try to log to command_logs if table exists
+      try {
+        await supabase.from('command_logs').insert({
+          source: 'alexa',
+          command_type: 'event/add',
+          payload: body,
+          status: 'error',
+          message: error.message,
+          household_id: process.env.NEXT_PUBLIC_HOUSEHOLD_ID || '00000000-0000-0000-0000-000000000000'
+        })
+      } catch (logError) {
+        // Ignore logging errors
+      }
 
       return NextResponse.json(
-        { error: 'Failed to create event', details: error.message },
+        { error: 'Failed to create calendar event', details: error.message },
         { status: 500 }
       )
     }
 
-    // Log success
-    await supabase.from('command_logs').insert({
-      source: 'alexa',
-      command_type: 'event/add',
-      payload: body,
-      status: 'ok',
-      message: 'Event created successfully',
-      household_id: householdId
-    })
+    // Log success (if command_logs table exists)
+    try {
+      await supabase.from('command_logs').insert({
+        source: 'alexa',
+        command_type: 'event/add',
+        payload: body,
+        status: 'ok',
+        message: 'Calendar event created successfully',
+        household_id: process.env.NEXT_PUBLIC_HOUSEHOLD_ID || '00000000-0000-0000-0000-000000000000'
+      })
+    } catch (logError) {
+      // Ignore logging errors
+    }
 
     return NextResponse.json({
       ok: true,
-      eventId: event.id
+      eventId: calendarEvent.id
     })
   } catch (error: any) {
     const supabase = createServerClient()
