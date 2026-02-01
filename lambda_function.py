@@ -10,7 +10,6 @@ from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_model.ui import SimpleCard
 from ask_sdk_model import Response
 import boto3
-import json
 import re
 import uuid
 
@@ -19,7 +18,7 @@ bedrock = boto3.client("bedrock-agent-runtime", region_name="us-east-1")
 AGENT_ID = "DWFOFSX0S9"
 AGENT_ALIAS_ID = "RNNI7PYCRK"
 
-VERCEL_API_URL = "https://your-vercel-app.vercel.app/api/todo"
+VERCEL_API_URL = os.environ.get('VERCEL_API_URL', 'https://echo-glass-mu.vercel.app')
 
 sb = SkillBuilder()
 
@@ -86,19 +85,32 @@ JSON schema:
 
 
 def call_vercel(action, data):
+    """Call Vercel API endpoint with authentication"""
+    url = f"{VERCEL_API_URL}/api/alexa"
     body = json.dumps({
         "action": action,
         "data": data
     }).encode("utf-8")
 
+    secret = os.environ.get('ALEXA_SHARED_SECRET', '')
+    
     req = urllib.request.Request(
-        VERCEL_API_URL,
+        url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-mirror-secret": secret
+        },
         method="POST"
     )
 
-    urllib.request.urlopen(req)
+    try:
+        response = urllib.request.urlopen(req)
+        return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        logger.error(f"API call failed: {e.code} - {error_body}")
+        raise
 
 class LaunchRequestHandler(AbstractRequestHandler):
     """Handler for Skill Launch."""
@@ -122,12 +134,17 @@ class AddTodoIntentHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         item = handler_input.request_envelope.request.intent.slots["todoItem"].value
 
-        speech_text = f"Added {item} to your list."
+        try:
+            call_vercel("add", {"item": item})
+            speech_text = f"Added {item} to your list."
+        except Exception as e:
+            logger.error(f"Failed to add todo: {e}")
+            speech_text = f"Sorry, I couldn't add {item} to your list."
+        
         handler_input.response_builder.speak(speech_text).set_card(
             SimpleCard("To Do", speech_text)
         )
         logger.info("add to do")
-        # call_vercel("add", {"item": item})
 
         return handler_input.response_builder.response
 
@@ -139,11 +156,15 @@ class RemoveTodoIntentHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         item = handler_input.request_envelope.request.intent.slots["todoItem"].value
 
-        speech_text = f"Removed {item} from your list."
+        try:
+            call_vercel("remove", {"item": item})
+            speech_text = f"Removed {item} from your list."
+        except Exception as e:
+            logger.error(f"Failed to remove todo: {e}")
+            speech_text = f"Sorry, I couldn't remove {item} from your list."
+        
         logger.info("remove to do")
-
         handler_input.response_builder.speak(speech_text)
-        # call_vercel("remove", {"item": item})
 
         return handler_input.response_builder.response
 
@@ -155,11 +176,15 @@ class CompleteTodoIntentHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         item = handler_input.request_envelope.request.intent.slots["todoItem"].value
 
-        speech_text = f"Marked {item} as completed."
+        try:
+            call_vercel("complete", {"item": item, "completed": True})
+            speech_text = f"Marked {item} as completed."
+        except Exception as e:
+            logger.error(f"Failed to complete todo: {e}")
+            speech_text = f"Sorry, I couldn't mark {item} as completed."
+        
         logger.info("complete to do")
-
         handler_input.response_builder.speak(speech_text)
-        # call_vercel("complete", {"item": item})
 
         return handler_input.response_builder.response
 
@@ -214,17 +239,29 @@ class ReminderIntentHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         task = handler_input.request_envelope.request.intent.slots["task"].value
 
-        speech_text = f"Reminder set for {task}."
-        logger.info("reminder to do")
-        response = extract_reminder_fields(task, session_id=str(uuid.uuid4()))
-        text = read_agent_text(response)
-        logger.info("agent raw len=%s head=%s", len(text), text[:250])
-        json_str = extract_json_object(text)
-        logger.info("look here %s", json_str)
+        try:
+            # Extract reminder details using Bedrock Agent
+            response = extract_reminder_fields(task, session_id=str(uuid.uuid4()))
+            text = read_agent_text(response)
+            logger.info("agent raw len=%s head=%s", len(text), text[:250])
+            json_str = extract_json_object(text)
+            logger.info("extracted reminder data: %s", json_str)
+            reminder_data = json.loads(json_str)
+            
+            # Call Vercel API with extracted data
+            call_vercel("reminder", {
+                "task": reminder_data.get("task"),
+                "date": reminder_data.get("date"),
+                "time": reminder_data.get("time")
+            })
+            
+            speech_text = f"Reminder set for {task}."
+        except Exception as e:
+            logger.error(f"Failed to set reminder: {e}")
+            speech_text = f"Sorry, I couldn't set the reminder for {task}."
         
-
+        logger.info("reminder to do")
         handler_input.response_builder.speak(speech_text)
-        # call_vercel("reminder", {"task": task, "time": time})
 
         return handler_input.response_builder.response
 
