@@ -20,123 +20,6 @@ export default function PhotoTryoutCapture() {
   const supabaseRef = useRef(createClient())
   const countdownStartedRef = useRef(false)
 
-  useEffect(() => {
-    const supabase = supabaseRef.current
-    if (!supabase) return
-
-    // Check for commands waiting for photo
-    const checkForCommands = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('photo_tryout_commands')
-          .select('*')
-          .eq('status', 'waiting_photo')
-          .order('created_at', { ascending: false })
-          .limit(1)
-
-        if (error) {
-          if (error.code === 'PGRST116' || error.code === '42P01') {
-            return
-          }
-          console.error('Error checking for photo tryout commands:', error)
-          return
-        }
-
-        if (data && data.length > 0) {
-          countdownStartedRef.current = false // Reset for new command
-          setCurrentCommand(data[0])
-          setShowCapture(true)
-          startCamera() // Camera will auto-start countdown when ready
-        }
-      } catch (err) {
-        console.log('Exception checking commands:', err)
-      }
-    }
-
-    checkForCommands()
-
-    // Subscribe to status changes
-    const channel = supabase
-      .channel('photo-tryout-capture')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'photo_tryout_commands',
-          filter: 'status=eq.waiting_photo'
-        },
-        (payload: any) => {
-          countdownStartedRef.current = false // Reset for new command
-          setCurrentCommand(payload.new)
-          setShowCapture(true)
-          if (!streamRef.current) {
-            startCamera()
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-      stopCamera()
-    }
-  }, [])
-
-  // Auto-start countdown when camera is ready
-  useEffect(() => {
-    if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current && videoRef.current) {
-      const video = videoRef.current
-      
-      // Check if video is ready
-      const checkVideoReady = () => {
-        if (video.readyState >= 2 && !countdownStartedRef.current) { // HAVE_CURRENT_DATA or higher
-          // Video is ready, wait a moment for it to stabilize, then start countdown
-          console.log('PhotoTryoutCapture: Video ready, starting automatic countdown')
-          setTimeout(() => {
-            // Double-check we're still in the right state
-            if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
-              startCountdown()
-            }
-          }, 1000) // Give 1 second for video to stabilize
-        }
-      }
-
-      // If already ready, start after a delay
-      if (video.readyState >= 2) {
-        setTimeout(() => {
-          if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
-            startCountdown()
-          }
-        }, 1000)
-      } else {
-        // Wait for video to be ready
-        video.addEventListener('loadedmetadata', checkVideoReady, { once: true })
-        video.addEventListener('canplay', checkVideoReady, { once: true })
-        
-        return () => {
-          video.removeEventListener('loadedmetadata', checkVideoReady)
-          video.removeEventListener('canplay', checkVideoReady)
-        }
-      }
-    }
-  }, [showCapture, currentCommand, countdown, capturedPhoto, startCountdown])
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' }
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
-    } catch (error) {
-      console.error('Error accessing camera:', error)
-      alert('Failed to access camera. Please check permissions.')
-    }
-  }
-
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
@@ -287,6 +170,123 @@ export default function PhotoTryoutCapture() {
       })
     }, 1000)
   }, [capturePhoto])
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' }
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+      alert('Failed to access camera. Please check permissions.')
+    }
+  }
+
+  useEffect(() => {
+    const supabase = supabaseRef.current
+    if (!supabase) return
+
+    // Check for commands waiting for photo
+    const checkForCommands = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('photo_tryout_commands')
+          .select('*')
+          .eq('status', 'waiting_photo')
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        if (error) {
+          if (error.code === 'PGRST116' || error.code === '42P01') {
+            return
+          }
+          console.error('Error checking for photo tryout commands:', error)
+          return
+        }
+
+        if (data && data.length > 0) {
+          countdownStartedRef.current = false // Reset for new command
+          setCurrentCommand(data[0])
+          setShowCapture(true)
+          startCamera() // Camera will auto-start countdown when ready
+        }
+      } catch (err) {
+        console.log('Exception checking commands:', err)
+      }
+    }
+
+    checkForCommands()
+
+    // Subscribe to status changes
+    const channel = supabase
+      .channel('photo-tryout-capture')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'photo_tryout_commands',
+          filter: 'status=eq.waiting_photo'
+        },
+        (payload: any) => {
+          countdownStartedRef.current = false // Reset for new command
+          setCurrentCommand(payload.new)
+          setShowCapture(true)
+          if (!streamRef.current) {
+            startCamera()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      stopCamera()
+    }
+  }, [])
+
+  // Auto-start countdown when camera is ready
+  useEffect(() => {
+    if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current && videoRef.current) {
+      const video = videoRef.current
+      
+      // Check if video is ready
+      const checkVideoReady = () => {
+        if (video.readyState >= 2 && !countdownStartedRef.current) { // HAVE_CURRENT_DATA or higher
+          // Video is ready, wait a moment for it to stabilize, then start countdown
+          console.log('PhotoTryoutCapture: Video ready, starting automatic countdown')
+          setTimeout(() => {
+            // Double-check we're still in the right state
+            if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
+              startCountdown()
+            }
+          }, 1000) // Give 1 second for video to stabilize
+        }
+      }
+
+      // If already ready, start after a delay
+      if (video.readyState >= 2) {
+        setTimeout(() => {
+          if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
+            startCountdown()
+          }
+        }, 1000)
+      } else {
+        // Wait for video to be ready
+        video.addEventListener('loadedmetadata', checkVideoReady, { once: true })
+        video.addEventListener('canplay', checkVideoReady, { once: true })
+        
+        return () => {
+          video.removeEventListener('loadedmetadata', checkVideoReady)
+          video.removeEventListener('canplay', checkVideoReady)
+        }
+      }
+    }
+  }, [showCapture, currentCommand, countdown, capturedPhoto, startCountdown])
 
   const handleClose = () => {
     setShowCapture(false)
