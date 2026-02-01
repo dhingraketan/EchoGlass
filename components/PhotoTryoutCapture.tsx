@@ -16,9 +16,11 @@ export default function PhotoTryoutCapture() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const supabaseRef = useRef(createClient())
+  const countdownStartedRef = useRef(false)
 
   useEffect(() => {
-    const supabase = createClient()
+    const supabase = supabaseRef.current
     if (!supabase) return
 
     // Check for commands waiting for photo
@@ -40,9 +42,10 @@ export default function PhotoTryoutCapture() {
         }
 
         if (data && data.length > 0) {
+          countdownStartedRef.current = false // Reset for new command
           setCurrentCommand(data[0])
           setShowCapture(true)
-          startCamera()
+          startCamera() // Camera will auto-start countdown when ready
         }
       } catch (err) {
         console.log('Exception checking commands:', err)
@@ -63,6 +66,7 @@ export default function PhotoTryoutCapture() {
           filter: 'status=eq.waiting_photo'
         },
         (payload: any) => {
+          countdownStartedRef.current = false // Reset for new command
           setCurrentCommand(payload.new)
           setShowCapture(true)
           if (!streamRef.current) {
@@ -77,6 +81,45 @@ export default function PhotoTryoutCapture() {
       stopCamera()
     }
   }, [])
+
+  // Auto-start countdown when camera is ready
+  useEffect(() => {
+    if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current && videoRef.current) {
+      const video = videoRef.current
+      
+      // Check if video is ready
+      const checkVideoReady = () => {
+        if (video.readyState >= 2 && !countdownStartedRef.current) { // HAVE_CURRENT_DATA or higher
+          // Video is ready, wait a moment for it to stabilize, then start countdown
+          console.log('PhotoTryoutCapture: Video ready, starting automatic countdown')
+          setTimeout(() => {
+            // Double-check we're still in the right state
+            if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
+              startCountdown()
+            }
+          }, 1000) // Give 1 second for video to stabilize
+        }
+      }
+
+      // If already ready, start after a delay
+      if (video.readyState >= 2) {
+        setTimeout(() => {
+          if (showCapture && currentCommand && !countdown && !capturedPhoto && !countdownStartedRef.current) {
+            startCountdown()
+          }
+        }, 1000)
+      } else {
+        // Wait for video to be ready
+        video.addEventListener('loadedmetadata', checkVideoReady, { once: true })
+        video.addEventListener('canplay', checkVideoReady, { once: true })
+        
+        return () => {
+          video.removeEventListener('loadedmetadata', checkVideoReady)
+          video.removeEventListener('canplay', checkVideoReady)
+        }
+      }
+    }
+  }, [showCapture, currentCommand, countdown, capturedPhoto])
 
   const startCamera = async () => {
     try {
@@ -101,6 +144,10 @@ export default function PhotoTryoutCapture() {
   }
 
   const startCountdown = () => {
+    if (countdownStartedRef.current) {
+      return // Already started
+    }
+    countdownStartedRef.current = true
     setCountdown(5)
     const interval = setInterval(() => {
       setCountdown((prev) => {
@@ -137,7 +184,7 @@ export default function PhotoTryoutCapture() {
   const uploadPhoto = async (photoDataUrl: string) => {
     if (!currentCommand) return
 
-    const supabase = createClient()
+    const supabase = supabaseRef.current
     if (!supabase) return
 
     try {
@@ -188,10 +235,10 @@ export default function PhotoTryoutCapture() {
       const resultImageUrl = `data:${mimeType};base64,${imageData}`
 
       // Update command with result
-      const supabase = createClient()
+      const supabase = supabaseRef.current
       if (!supabase) return
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('photo_tryout_commands')
         .update({
           result_image_url: resultImageUrl,
@@ -199,13 +246,25 @@ export default function PhotoTryoutCapture() {
         })
         .eq('id', commandId)
 
+      if (updateError) {
+        console.error('Error updating command with result:', updateError)
+        throw new Error(`Failed to save result: ${updateError.message}`)
+      }
+
+      console.log('PhotoTryoutCapture: Successfully updated command with result image')
+
+      // Wait a brief moment to ensure Realtime update propagates before closing
+      await new Promise(resolve => setTimeout(resolve, 500))
+
       // Close capture view
       setShowCapture(false)
       setCurrentCommand(null)
       setCapturedPhoto(null)
+      setCountdown(null)
+      countdownStartedRef.current = false
     } catch (error: any) {
       console.error('Error generating image:', error)
-      const supabase = createClient()
+      const supabase = supabaseRef.current
       if (supabase) {
         await supabase
           .from('photo_tryout_commands')
@@ -223,6 +282,8 @@ export default function PhotoTryoutCapture() {
     setShowCapture(false)
     setCurrentCommand(null)
     setCapturedPhoto(null)
+    setCountdown(null)
+    countdownStartedRef.current = false
     stopCamera()
   }
 
@@ -254,13 +315,8 @@ export default function PhotoTryoutCapture() {
                 </div>
               </div>
             ) : (
-              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4">
-                <button
-                  onClick={startCountdown}
-                  className="bg-blue-600 text-white px-8 py-4 rounded-lg text-xl font-bold hover:bg-blue-700"
-                >
-                  Take Photo
-                </button>
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2">
+                <p className="text-white text-lg text-center mb-2">Preparing camera...</p>
                 <button
                   onClick={handleClose}
                   className="bg-gray-600 text-white px-8 py-4 rounded-lg text-xl font-bold hover:bg-gray-700"

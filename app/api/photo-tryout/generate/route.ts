@@ -129,6 +129,26 @@ export async function POST(request: NextRequest) {
     const geminiData = await geminiResponse.json()
     console.log('Gemini API response received, candidates:', geminiData.candidates?.length || 0)
     
+    // Log the full response structure (without huge base64 data) for debugging
+    console.log('Full Gemini response structure:', JSON.stringify({
+      ...geminiData,
+      candidates: geminiData.candidates?.map((c: any) => ({
+        ...c,
+        content: c.content ? {
+          ...c.content,
+          parts: c.content.parts?.map((p: any) => ({
+            ...p,
+            inline_data: p.inline_data ? {
+              mime_type: p.inline_data.mime_type,
+              data_length: p.inline_data.data?.length || 0,
+              data_preview: p.inline_data.data?.substring(0, 50) || 'no data'
+            } : null,
+            text: p.text ? p.text.substring(0, 200) : null
+          }))
+        } : null
+      }))
+    }, null, 2))
+    
     // Log the full candidate structure (without huge base64 data)
     if (geminiData.candidates?.[0]) {
       const candidate = geminiData.candidates[0]
@@ -191,31 +211,77 @@ export async function POST(request: NextRequest) {
     parts.forEach((part: any, idx: number) => {
       if (part.inline_data) {
         console.log(`Part ${idx}: has inline_data, mime_type: ${part.inline_data.mime_type}, data length: ${part.inline_data.data?.length || 0}`)
+        console.log(`Part ${idx}: inline_data keys:`, Object.keys(part.inline_data))
+        console.log(`Part ${idx}: inline_data structure:`, JSON.stringify({
+          mime_type: part.inline_data.mime_type,
+          has_data: !!part.inline_data.data,
+          data_type: typeof part.inline_data.data,
+          data_length: part.inline_data.data?.length || 0
+        }, null, 2))
       } else if (part.text) {
         console.log(`Part ${idx}: has text:`, part.text.substring(0, 200))
       } else {
-        console.log(`Part ${idx}: type: unknown, keys:`, Object.keys(part), 'full part:', JSON.stringify(part))
+        console.log(`Part ${idx}: type: unknown, keys:`, Object.keys(part))
+        console.log(`Part ${idx}: full part structure:`, JSON.stringify(part, null, 2))
       }
     })
     
     // Try direct access first (most common structure)
+    // Handle both snake_case (REST API) and camelCase (SDK) formats
     let imageData: string | undefined
     let mimeType: string | undefined
     
-    if (parts.length > 0 && parts[0].inline_data?.data) {
-      imageData = parts[0].inline_data.data
-      mimeType = parts[0].inline_data.mime_type
-      console.log('Found image in first part via direct access')
-    } else {
-      // Find the part with inline_data containing an image
-      const generatedImagePart = parts.find(
-        (part: any) => part.inline_data && part.inline_data.mime_type && part.inline_data.mime_type.startsWith('image/')
-      ) || parts.find((part: any) => part.inline_data)
+    // Check first part directly
+    if (parts.length > 0) {
+      const firstPart = parts[0]
+      // Try snake_case format (REST API)
+      if (firstPart.inline_data?.data) {
+        imageData = firstPart.inline_data.data
+        mimeType = firstPart.inline_data.mime_type
+        console.log('Found image in first part via direct access (snake_case)')
+      }
+      // Try camelCase format (SDK format, just in case)
+      else if (firstPart.inlineData?.data) {
+        imageData = firstPart.inlineData.data
+        mimeType = firstPart.inlineData.mimeType
+        console.log('Found image in first part via direct access (camelCase)')
+      }
+    }
+    
+    // If not found in first part, search all parts
+    if (!imageData) {
+      for (const part of parts) {
+        // Try snake_case format
+        if (part.inline_data?.data && part.inline_data.mime_type?.startsWith('image/')) {
+          imageData = part.inline_data.data
+          mimeType = part.inline_data.mime_type
+          console.log('Found image via search (snake_case)')
+          break
+        }
+        // Try camelCase format
+        else if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('image/')) {
+          imageData = part.inlineData.data
+          mimeType = part.inlineData.mimeType
+          console.log('Found image via search (camelCase)')
+          break
+        }
+      }
       
-      if (generatedImagePart?.inline_data?.data) {
-        imageData = generatedImagePart.inline_data.data
-        mimeType = generatedImagePart.inline_data.mime_type
-        console.log('Found image via search')
+      // Last resort: find any part with inline_data/inlineData
+      if (!imageData) {
+        for (const part of parts) {
+          if (part.inline_data?.data) {
+            imageData = part.inline_data.data
+            mimeType = part.inline_data.mime_type
+            console.log('Found image via fallback search (snake_case)')
+            break
+          } else if (part.inlineData?.data) {
+            imageData = part.inlineData.data
+            mimeType = part.inlineData.mimeType
+            console.log('Found image via fallback search (camelCase)')
+            break
+          }
+        }
       }
     }
 
@@ -223,26 +289,67 @@ export async function POST(request: NextRequest) {
       console.error('No image data found in any part')
       console.error('Parts summary:', parts.map((p: any, i: number) => ({
         index: i,
-        hasInlineData: !!p.inline_data,
-        mimeType: p.inline_data?.mime_type,
-        hasData: !!p.inline_data?.data,
-        dataLength: p.inline_data?.data?.length || 0,
+        hasInlineData: !!p.inline_data || !!p.inlineData,
+        mimeType: p.inline_data?.mime_type || p.inlineData?.mimeType,
+        hasData: !!(p.inline_data?.data || p.inlineData?.data),
+        dataLength: (p.inline_data?.data || p.inlineData?.data)?.length || 0,
         hasText: !!p.text,
-        textPreview: p.text?.substring(0, 200)
+        textPreview: p.text?.substring(0, 500),
+        allKeys: Object.keys(p)
       })))
       
       // Check if there's a text explanation
       const textResponse = parts.find((p: any) => p.text)?.text
       if (textResponse) {
-        console.error('Gemini returned text instead of image:', textResponse)
+        console.error('Gemini returned text instead of image. Full text:', textResponse)
         return NextResponse.json(
-          { error: 'Gemini returned text instead of image', text: textResponse, finishReason: candidate.finishReason },
+          { 
+            error: 'Gemini returned text instead of image', 
+            text: textResponse, 
+            finishReason: candidate.finishReason,
+            partsCount: parts.length,
+            partsSummary: parts.map((p: any) => ({
+              hasText: !!p.text,
+              hasInlineData: !!p.inline_data || !!p.inlineData,
+              keys: Object.keys(p)
+            }))
+          },
           { status: 500 }
         )
       }
       
+      // Log the full response for debugging
+      console.error('Full response structure (for debugging):', JSON.stringify({
+        candidates: geminiData.candidates?.length || 0,
+        firstCandidate: {
+          finishReason: candidate.finishReason,
+          content: {
+            role: candidate.content?.role,
+            partsCount: candidate.content?.parts?.length || 0,
+            parts: candidate.content?.parts?.map((p: any, i: number) => ({
+              index: i,
+              keys: Object.keys(p),
+              hasText: !!p.text,
+              hasInlineData: !!p.inline_data || !!p.inlineData,
+              textPreview: p.text?.substring(0, 100)
+            }))
+          }
+        }
+      }, null, 2))
+      
       return NextResponse.json(
-        { error: 'No image data found in response', partsCount: parts.length, finishReason: candidate.finishReason },
+        { 
+          error: 'No image data found in response', 
+          partsCount: parts.length, 
+          finishReason: candidate.finishReason,
+          partsSummary: parts.map((p: any, i: number) => ({
+            index: i,
+            keys: Object.keys(p),
+            hasText: !!p.text,
+            hasInlineData: !!p.inline_data || !!p.inlineData,
+            textPreview: p.text?.substring(0, 200)
+          }))
+        },
         { status: 500 }
       )
     }

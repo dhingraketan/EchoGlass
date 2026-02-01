@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -18,14 +18,15 @@ interface PhotoTryoutCommand {
 
 export default function PhotoTryoutQRPopup() {
   const [showPopup, setShowPopup] = useState(false)
-  const [clothingInput, setClothingInput] = useState('')
+  const [clothingInput, setClothingInput] = useState<string>('')
   const [clothingFile, setClothingFile] = useState<File | null>(null)
   const [currentCommand, setCurrentCommand] = useState<PhotoTryoutCommand | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [inputType, setInputType] = useState<'url' | 'file'>('url')
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
-    const supabase = createClient()
+    const supabase = supabaseRef.current
     if (!supabase) {
       console.log('PhotoTryoutQRPopup: No Supabase client')
       return
@@ -148,7 +149,7 @@ export default function PhotoTryoutQRPopup() {
     }
 
     setSubmitting(true)
-    const supabase = createClient()
+    const supabase = supabaseRef.current
     if (!supabase) {
       setSubmitting(false)
       return
@@ -279,8 +280,8 @@ export default function PhotoTryoutQRPopup() {
             {inputType === 'url' ? (
               <input
                 type="text"
-                value={clothingInput}
-                onChange={(e) => setClothingInput(e.target.value)}
+                value={clothingInput || ''}
+                onChange={(e) => setClothingInput(e.target.value || '')}
                 placeholder="https://example.com/clothing-post"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg text-black mb-4"
                 disabled={submitting}
