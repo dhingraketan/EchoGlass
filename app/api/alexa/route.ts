@@ -68,6 +68,14 @@ export async function POST(request: NextRequest) {
         console.log('Photo tryout command result:', result)
         break
       
+      case 'stop youtube':
+      case 'youtube/stop':
+      case 'close youtube':
+        console.log('Stop YouTube action detected, calling handleStopYouTubeCommand')
+        result = await handleStopYouTubeCommand(data)
+        console.log('Stop YouTube command result:', result)
+        break
+      
       default:
         // If no action specified, try to infer from the data
         if (data.text || data.body || data.item) {
@@ -384,5 +392,58 @@ async function handlePhotoTryoutCommand(data: any) {
     ok: true,
     commandId: command.id,
     message: 'Photo tryout command received. Waiting for clothing submission.'
+  }
+}
+
+async function handleStopYouTubeCommand(data: any) {
+  console.log('handleStopYouTubeCommand called with data:', data)
+  const supabase = createServerClient()
+  
+  // Find the most recent completed YouTube command and set youtube_url to null
+  console.log('Finding most recent completed YouTube command...')
+  const { data: commands, error: findError } = await supabase
+    .from('youtube_commands')
+    .select('id, youtube_url, status')
+    .eq('status', 'completed')
+    .not('youtube_url', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (findError) {
+    console.error('Error finding YouTube command:', findError)
+    throw new Error(`Failed to find YouTube command: ${findError.message}`)
+  }
+
+  if (!commands || commands.length === 0) {
+    console.log('No active YouTube command found to close')
+    return {
+      ok: true,
+      message: 'No active YouTube video to close.'
+    }
+  }
+
+  const command = commands[0]
+  console.log('Updating YouTube command to close:', command.id)
+  
+  // Update the command to set youtube_url to null
+  const { data: updatedCommand, error: updateError } = await supabase
+    .from('youtube_commands')
+    .update({
+      youtube_url: null
+    })
+    .eq('id', command.id)
+    .select()
+    .single()
+
+  if (updateError) {
+    console.error('Error updating YouTube command:', updateError)
+    throw new Error(`Failed to close YouTube: ${updateError.message}`)
+  }
+
+  console.log('YouTube command closed successfully:', updatedCommand)
+  return {
+    ok: true,
+    commandId: updatedCommand.id,
+    message: 'YouTube video closed. Showing motivational quote.'
   }
 }

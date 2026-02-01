@@ -14,7 +14,7 @@ export default function YouTubePlayer() {
     // Don't load existing videos on page refresh - only show new ones via Realtime
     // This ensures the dashboard goes back to motivational quotes on refresh
 
-    // Subscribe to updates when new videos are submitted
+    // Subscribe to updates when new videos are submitted or closed
     const channel = supabase
       .channel('youtube-player-updates')
       .on(
@@ -26,9 +26,15 @@ export default function YouTubePlayer() {
           filter: 'status=eq.completed'
         },
         (payload: any) => {
-          console.log('YouTube video submitted via Realtime:', payload.new)
+          console.log('YouTube command updated via Realtime:', payload.new)
           if (payload.new.youtube_url) {
+            // Video URL is set - show the video
+            console.log('Setting YouTube URL:', payload.new.youtube_url)
             setYoutubeUrl(payload.new.youtube_url)
+          } else {
+            // Video URL is null or empty - close the video and show motivational quote
+            console.log('YouTube URL cleared - closing video and showing motivational quote')
+            setYoutubeUrl(null)
           }
         }
       )
