@@ -76,7 +76,7 @@ export default function StatusWidget({ householdId }: { householdId: string }) {
   }
 
   return (
-    <div className="flex items-center gap-6 text-white text-xs font-light">
+    <div className="flex items-center gap-6 text-white text-sm font-bold">
       <div className="flex items-center gap-2">
         <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
         <span>Wi-Fi Connected</span>

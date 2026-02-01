@@ -113,7 +113,7 @@ export default function TodoWidget({ householdId }: { householdId: string }) {
   if (loading) {
     return (
       <div className="text-white">
-        <div className="text-base font-bold mb-3 uppercase tracking-wide">TO-DO</div>
+        <div className="text-lg font-bold mb-3 uppercase tracking-wide">TO-DO</div>
         <div className="text-sm font-light text-white/60">Loading...</div>
       </div>
     )
@@ -121,7 +121,7 @@ export default function TodoWidget({ householdId }: { householdId: string }) {
 
   return (
     <div className="text-white">
-      <div className="text-base font-bold mb-3 uppercase tracking-wide">TO-DO</div>
+      <div className="text-lg font-bold mb-3 uppercase tracking-wide">TO-DO</div>
       {todos.length === 0 ? (
         <div className="text-sm font-light text-white/60">No todos.</div>
       ) : (
@@ -129,7 +129,7 @@ export default function TodoWidget({ householdId }: { householdId: string }) {
           {todos.map((todo) => (
             <div
               key={todo.id}
-              className={`flex items-start gap-2 text-sm font-light ${
+              className={`flex items-start gap-2 text-lg font-light ${
                 todo.completed 
                   ? 'text-white/40 line-through' 
                   : 'text-white'

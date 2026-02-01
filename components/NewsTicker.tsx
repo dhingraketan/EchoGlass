@@ -24,7 +24,7 @@ export default function NewsTicker() {
 
   return (
     <div className="text-white">
-      <div className="text-xs font-light text-white/60 mb-1 uppercase tracking-wide">News</div>
+      <div className="text-lg font-extrabold text-white/60 mb-1 uppercase tracking-wide">News</div>
       <div className="text-sm font-light leading-relaxed">
         {mockHeadlines[currentIndex]}
       </div>
