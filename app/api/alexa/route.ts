@@ -54,6 +54,11 @@ export async function POST(request: NextRequest) {
         result = await handleAddCalendarEvent(data)
         break
       
+      case 'youtube':
+      case 'play/youtube':
+        result = await handleYouTubeCommand(data)
+        break
+      
       default:
         // If no action specified, try to infer from the data
         if (data.text || data.body || data.item) {
@@ -307,5 +312,33 @@ async function handleAddCalendarEvent(data: any) {
   return {
     ok: true,
     eventId: calendarEvent.id
+  }
+}
+
+async function handleYouTubeCommand(data: any) {
+  const supabase = createServerClient()
+  
+  // Create a new YouTube command record
+  const { data: command, error } = await supabase
+    .from('youtube_commands')
+    .insert({
+      status: 'pending',
+      youtube_url: null
+    })
+    .select()
+    .single()
+
+  if (error) {
+    // If table doesn't exist, create it (this is a fallback - you should create the table in Supabase)
+    if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+      throw new Error('youtube_commands table does not exist. Please create it in Supabase.')
+    }
+    throw new Error(`Failed to create YouTube command: ${error.message}`)
+  }
+
+  return {
+    ok: true,
+    commandId: command.id,
+    message: 'YouTube command received. Waiting for URL submission.'
   }
 }

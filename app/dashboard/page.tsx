@@ -9,7 +9,8 @@ import TodoWidget from '@/components/TodoWidget'
 import StatusWidget from '@/components/StatusWidget'
 import NewsTicker from '@/components/NewsTicker'
 import StockTicker from '@/components/StockTicker'
-import MotivationalQuote from '@/components/MotivationalQuote'
+import YouTubePlayer from '@/components/YouTubePlayer'
+import YouTubeQRPopup from '@/components/YouTubeQRPopup'
 
 export default function DashboardPage() {
   const householdId = process.env.NEXT_PUBLIC_HOUSEHOLD_ID || 'default-household'
@@ -43,10 +44,13 @@ export default function DashboardPage() {
           <TodoWidget householdId={householdId} />
         </div>
 
-        {/* Center - Motivational Quote */}
+        {/* Center - YouTube Player or Motivational Quote */}
         <div className="absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-2/3">
-          <MotivationalQuote />
+          <YouTubePlayer />
         </div>
+
+        {/* YouTube QR Code Popup */}
+        <YouTubeQRPopup />
 
         {/* Bottom Left - Status */}
         <div className="absolute bottom-16 left-8 right-96">
