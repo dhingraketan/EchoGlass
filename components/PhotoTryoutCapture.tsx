@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface PhotoTryoutCommand {
@@ -120,7 +120,7 @@ export default function PhotoTryoutCapture() {
         }
       }
     }
-  }, [showCapture, currentCommand, countdown, capturedPhoto])
+  }, [showCapture, currentCommand, countdown, capturedPhoto, startCountdown])
 
   const startCamera = async () => {
     try {
@@ -144,80 +144,7 @@ export default function PhotoTryoutCapture() {
     }
   }
 
-  const startCountdown = () => {
-    if (countdownStartedRef.current) {
-      return // Already started
-    }
-    countdownStartedRef.current = true
-    setCountdown(5)
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval)
-          capturePhoto()
-          return null
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  const capturePhoto = () => {
-    if (!videoRef.current) return
-
-    const canvas = document.createElement('canvas')
-    canvas.width = videoRef.current.videoWidth
-    canvas.height = videoRef.current.videoHeight
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.drawImage(videoRef.current, 0, 0)
-    const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9)
-    
-    // Stop camera immediately
-    stopCamera()
-    
-    // Set processing state immediately - don't show the photo
-    setProcessing(true)
-    setCapturedPhoto(photoDataUrl) // Store it but don't display it
-
-    // Upload photo and update command
-    uploadPhoto(photoDataUrl)
-  }
-
-  const uploadPhoto = async (photoDataUrl: string) => {
-    if (!currentCommand) return
-
-    const supabase = supabaseRef.current
-    if (!supabase) return
-
-    try {
-      // Set processing state - hide photo and show loading
-      setProcessing(true)
-      
-      // Update command with user photo
-      const { error } = await supabase
-        .from('photo_tryout_commands')
-        .update({
-          user_photo_url: photoDataUrl,
-          status: 'processing'
-        })
-        .eq('id', currentCommand.id)
-
-      if (error) {
-        throw new Error(`Failed to upload photo: ${error.message}`)
-      }
-
-      // Trigger image generation
-      await generateImage(currentCommand.id, photoDataUrl, currentCommand.clothing_image_url!)
-    } catch (error: any) {
-      console.error('Error uploading photo:', error)
-      setProcessing(false)
-      alert('Failed to capture photo. Please try again.')
-    }
-  }
-
-  const generateImage = async (commandId: string, userPhotoUrl: string, clothingImageUrl: string) => {
+  const generateImage = useCallback(async (commandId: string, userPhotoUrl: string, clothingImageUrl: string) => {
     try {
       const response = await fetch('/api/photo-tryout/generate', {
         method: 'POST',
@@ -273,6 +200,7 @@ export default function PhotoTryoutCapture() {
       countdownStartedRef.current = false
     } catch (error: any) {
       console.error('Error generating image:', error)
+      setProcessing(false)
       const supabase = supabaseRef.current
       if (supabase) {
         await supabase
@@ -283,10 +211,82 @@ export default function PhotoTryoutCapture() {
           })
           .eq('id', commandId)
       }
-      setProcessing(false)
       alert('Failed to generate image. Please try again.')
     }
-  }
+  }, [])
+
+  const uploadPhoto = useCallback(async (photoDataUrl: string) => {
+    if (!currentCommand) return
+
+    const supabase = supabaseRef.current
+    if (!supabase) return
+
+    try {
+      // Set processing state - hide photo and show loading
+      setProcessing(true)
+      
+      // Update command with user photo
+      const { error } = await supabase
+        .from('photo_tryout_commands')
+        .update({
+          user_photo_url: photoDataUrl,
+          status: 'processing'
+        })
+        .eq('id', currentCommand.id)
+
+      if (error) {
+        throw new Error(`Failed to upload photo: ${error.message}`)
+      }
+
+      // Trigger image generation
+      await generateImage(currentCommand.id, photoDataUrl, currentCommand.clothing_image_url!)
+    } catch (error: any) {
+      console.error('Error uploading photo:', error)
+      setProcessing(false)
+      alert('Failed to capture photo. Please try again.')
+    }
+  }, [currentCommand, generateImage])
+
+  const capturePhoto = useCallback(() => {
+    if (!videoRef.current) return
+
+    const canvas = document.createElement('canvas')
+    canvas.width = videoRef.current.videoWidth
+    canvas.height = videoRef.current.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.drawImage(videoRef.current, 0, 0)
+    const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9)
+    
+    // Stop camera immediately
+    stopCamera()
+    
+    // Set processing state immediately - don't show the photo
+    setProcessing(true)
+    setCapturedPhoto(photoDataUrl) // Store it but don't display it
+
+    // Upload photo and update command
+    uploadPhoto(photoDataUrl)
+  }, [uploadPhoto])
+
+  const startCountdown = useCallback(() => {
+    if (countdownStartedRef.current) {
+      return // Already started
+    }
+    countdownStartedRef.current = true
+    setCountdown(5)
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval)
+          capturePhoto()
+          return null
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }, [capturePhoto])
 
   const handleClose = () => {
     setShowCapture(false)
