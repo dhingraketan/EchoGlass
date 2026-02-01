@@ -31,7 +31,6 @@ export default function PhotoTryoutResult() {
   const [showGesturePrompt, setShowGesturePrompt] = useState(false)
   const [gestureCountdown, setGestureCountdown] = useState(10)
   const [gestureResult, setGestureResult] = useState<'yes' | 'no' | 'pending'>('pending')
-  const [detectionStatus, setDetectionStatus] = useState<string>('Initializing...')
   const supabaseRef = useRef(createClient())
   const showingResultRef = useRef(false)
   const componentMountTimeRef = useRef<Date>(new Date())
@@ -75,9 +74,24 @@ export default function PhotoTryoutResult() {
   
   const shownCommandIdsRef = useRef<Set<string>>(loadShownCommandIds())
 
+  // Helper function to check if we should show a command
+  const shouldShowCommand = (command: PhotoTryoutCommand): boolean => {
+    // Don't show if we've already shown this command
+    if (shownCommandIdsRef.current.has(command.id)) {
+      return false
+    }
+    
+    // Only show if it has a result image
+    if (!command.result_image_url) {
+      return false
+    }
+    
+    return true
+  }
+
   // Helper function to show a command
-  const showCommand = useRef((command: PhotoTryoutCommand) => {
-    if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
+  const showCommand = (command: PhotoTryoutCommand) => {
+    if (shouldShowCommand(command)) {
       console.log('PhotoTryoutResult: Showing result for command:', command.id)
       shownCommandIdsRef.current.add(command.id)
       saveShownCommandId(command.id) // Persist to localStorage
@@ -89,7 +103,7 @@ export default function PhotoTryoutResult() {
       setShowResult(true)
       showingResultRef.current = true
     }
-  }).current
+  }
 
   useEffect(() => {
     const supabase = supabaseRef.current
@@ -128,8 +142,7 @@ export default function PhotoTryoutResult() {
         if (data && data.length > 0) {
           // Find the first command we haven't shown yet
           for (const command of data) {
-            // Check if we should show this command
-            if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
+            if (shouldShowCommand(command)) {
               console.log('PhotoTryoutResult: Found new completed command via polling:', command.id, 'result_image_url length:', command.result_image_url?.length || 0)
               showCommand(command)
               break // Only show one at a time
@@ -184,7 +197,7 @@ export default function PhotoTryoutResult() {
               
               console.log('PhotoTryoutResult: Fetched full command from database - has result_image_url:', !!fullCommand?.result_image_url, 'length:', fullCommand?.result_image_url?.length || 0)
               
-              if (fullCommand && !shownCommandIdsRef.current.has(fullCommand.id) && fullCommand.result_image_url) {
+              if (fullCommand && shouldShowCommand(fullCommand)) {
                 console.log('PhotoTryoutResult: Fetched full command from database, showing result')
                 showCommand(fullCommand)
                 return
@@ -212,11 +225,10 @@ export default function PhotoTryoutResult() {
             return
           }
           
-          // Check if we should show this command
-          if (!shownCommandIdsRef.current.has(command.id) && command.result_image_url) {
+          if (shouldShowCommand(command)) {
             showCommand(command)
           } else {
-            console.log('PhotoTryoutResult: Update received but command rejected')
+            console.log('PhotoTryoutResult: Update received but command rejected by shouldShowCommand')
             console.log('PhotoTryoutResult: Shown command IDs:', Array.from(shownCommandIdsRef.current))
             console.log('PhotoTryoutResult: Current showingResultRef:', showingResultRef.current)
             console.log('PhotoTryoutResult: Command ID:', command.id, 'already shown?', shownCommandIdsRef.current.has(command.id))
@@ -232,7 +244,6 @@ export default function PhotoTryoutResult() {
       clearInterval(checkInterval)
       supabase.removeChannel(channel)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleClose = () => {
@@ -265,14 +276,12 @@ export default function PhotoTryoutResult() {
         setGestureCountdown(10)
         startGestureDetection()
       }, 20000) // 20 seconds
-    // eslint-disable-next-line react-hooks/exhaustive-deps
 
       return () => {
         clearInterval(countdownInterval)
         clearTimeout(gesturePromptTimer)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showResult, currentCommand])
 
   // Gesture detection countdown and timeout
@@ -285,7 +294,6 @@ export default function PhotoTryoutResult() {
             // Timeout - default to no
             handleGestureResult('no')
             return 0
-    // eslint-disable-next-line react-hooks/exhaustive-deps
           }
           return prev - 1
         })
@@ -295,274 +303,171 @@ export default function PhotoTryoutResult() {
         clearInterval(gestureInterval)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showGesturePrompt, gestureResult])
 
-  const startGestureDetection = useRef(async () => {
+  const startGestureDetection = async () => {
     try {
-      setDetectionStatus('Accessing camera...')
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 640, height: 480 }
+        video: { facingMode: 'user' }
       })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        await videoRef.current.play()
-        setDetectionStatus('Camera ready. Detecting gestures...')
+        videoRef.current.play()
         detectHeadMovement()
       }
     } catch (error) {
       console.error('Error accessing camera for gesture detection:', error)
-      setDetectionStatus('Camera access failed. Will timeout after 10 seconds.')
       // If camera fails, default to no after timeout
     }
-  }).current
+  }
 
   const detectHeadMovement = () => {
     if (!videoRef.current || !canvasRef.current) return
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) {
-      setDetectionStatus('Canvas context not available')
-      return
-    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
-    // Use Face Detection API if available, otherwise fallback to motion detection
-    // @ts-ignore
-    if (window.FaceDetector) {
-      startFaceDetection(ctx, video, canvas)
-    } else {
-      startMotionDetection(ctx, video, canvas)
-    }
+    // Simple motion-based head movement detection
+    let previousFrame: ImageData | null = null
+    let motionHistory: { vertical: number; horizontal: number; timestamp: number }[] = []
+    let nodCount = 0
+    let shakeCount = 0
+    let frameCount = 0
+    const motionThreshold = 30 // Adjust based on testing
 
-    function startFaceDetection(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvas: HTMLCanvasElement) {
-      setDetectionStatus('Using Face Detection API')
-      // @ts-ignore
-      const faceDetector = new window.FaceDetector({
-        fastMode: true,
-        maxDetections: 1
-      })
+    const detect = () => {
+      if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current)
+        }
+        return
+      }
 
-      let headPositions: { x: number; y: number }[] = []
-      let nodCount = 0
-      let shakeCount = 0
-      let noFaceCount = 0
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-      const detect = async () => {
-        if (!videoRef.current || gestureResult !== 'pending') {
-          if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current)
+      if (previousFrame) {
+        // Focus on center region where face typically is
+        const centerX = Math.floor(canvas.width / 2)
+        const centerY = Math.floor(canvas.height / 2)
+        const regionSize = 150
+
+        let verticalMotion = 0
+        let horizontalMotion = 0
+        let sampleCount = 0
+
+        // Sample motion in center region
+        for (let y = centerY - regionSize; y < centerY + regionSize; y += 8) {
+          for (let x = centerX - regionSize; x < centerX + regionSize; x += 8) {
+            if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
+              const idx = (y * canvas.width + x) * 4
+              const prevIdx = idx
+              
+              // Calculate brightness difference
+              const currentBrightness = (
+                currentFrame.data[idx] + 
+                currentFrame.data[idx + 1] + 
+                currentFrame.data[idx + 2]
+              ) / 3
+              
+              const prevBrightness = (
+                previousFrame.data[prevIdx] + 
+                previousFrame.data[prevIdx + 1] + 
+                previousFrame.data[prevIdx + 2]
+              ) / 3
+              
+              const diff = Math.abs(currentBrightness - prevBrightness)
+              
+              // Determine if motion is more vertical or horizontal based on position
+              const distFromCenterX = Math.abs(x - centerX)
+              const distFromCenterY = Math.abs(y - centerY)
+              
+              if (distFromCenterY < distFromCenterX) {
+                // More horizontal motion
+                horizontalMotion += diff
+              } else {
+                // More vertical motion
+                verticalMotion += diff
+              }
+              
+              sampleCount++
+            }
           }
-          return
         }
 
-        try {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          // @ts-ignore
-          const faces = await faceDetector.detect(video)
+        // Normalize motion values
+        const avgVerticalMotion = verticalMotion / sampleCount
+        const avgHorizontalMotion = horizontalMotion / sampleCount
 
-          if (faces && faces.length > 0) {
-            noFaceCount = 0
-            const face = faces[0]
-            const boundingBox = face.boundingBox
-            const headX = boundingBox.x + boundingBox.width / 2
-            const headY = boundingBox.y + boundingBox.height / 2
+        frameCount++
+        
+        // Analyze motion every 5 frames
+        if (frameCount % 5 === 0) {
+          const timestamp = Date.now()
+          motionHistory.push({
+            vertical: avgVerticalMotion,
+            horizontal: avgHorizontalMotion,
+            timestamp
+          })
 
-            headPositions.push({ x: headX, y: headY })
-            if (headPositions.length > 30) {
-              headPositions.shift()
-            }
+          // Keep only last 2 seconds of motion history
+          motionHistory = motionHistory.filter(m => timestamp - m.timestamp < 2000)
 
-            if (headPositions.length >= 15) {
-              // Analyze vertical movement (nodding)
-              const recentY = headPositions.slice(-15).map(p => p.y)
-              const minY = Math.min(...recentY)
-              const maxY = Math.max(...recentY)
-              const verticalRange = maxY - minY
+          if (motionHistory.length >= 10) {
+            // Analyze recent motion patterns
+            const recentVertical = motionHistory.slice(-10).map(m => m.vertical)
+            const recentHorizontal = motionHistory.slice(-10).map(m => m.horizontal)
 
-              if (verticalRange > 25) {
-                nodCount++
-                shakeCount = Math.max(0, shakeCount - 1)
-                setDetectionStatus(`Nodding detected (${nodCount}/5)`)
-                console.log('Nodding detected:', nodCount, 'range:', verticalRange.toFixed(1))
-                if (nodCount >= 5) {
-                  handleGestureResult('yes')
-                  return
-                }
-              } else {
-                nodCount = Math.max(0, nodCount - 1)
-              }
+            // Calculate variance to detect consistent movement
+            const avgV = recentVertical.reduce((a, b) => a + b, 0) / recentVertical.length
+            const varianceV = recentVertical.reduce((sum, v) => sum + Math.pow(v - avgV, 2), 0) / recentVertical.length
 
-              // Analyze horizontal movement (shaking)
-              const recentX = headPositions.slice(-15).map(p => p.x)
-              const minX = Math.min(...recentX)
-              const maxX = Math.max(...recentX)
-              const horizontalRange = maxX - minX
+            const avgH = recentHorizontal.reduce((a, b) => a + b, 0) / recentHorizontal.length
+            const varianceH = recentHorizontal.reduce((sum, h) => sum + Math.pow(h - avgH, 2), 0) / recentHorizontal.length
 
-              if (horizontalRange > 25) {
-                shakeCount++
-                nodCount = Math.max(0, nodCount - 1)
-                setDetectionStatus(`Shaking detected (${shakeCount}/5)`)
-                console.log('Shaking detected:', shakeCount, 'range:', horizontalRange.toFixed(1))
-                if (shakeCount >= 5) {
-                  handleGestureResult('no')
-                  return
-                }
-              } else {
-                shakeCount = Math.max(0, shakeCount - 1)
+            // Detect nodding (vertical movement pattern)
+            if (varianceV > motionThreshold && avgV > motionThreshold / 2) {
+              nodCount++
+              shakeCount = Math.max(0, shakeCount - 1)
+              console.log('Nodding detected:', nodCount)
+              if (nodCount >= 6) {
+                handleGestureResult('yes')
+                return
               }
             } else {
-              setDetectionStatus(`Tracking face... (${headPositions.length}/15)`)
+              nodCount = Math.max(0, nodCount - 1)
             }
-          } else {
-            noFaceCount++
-            if (noFaceCount > 10) {
-              setDetectionStatus('Face not detected. Please look at the camera.')
+
+            // Detect shaking (horizontal movement pattern)
+            if (varianceH > motionThreshold && avgH > motionThreshold / 2) {
+              shakeCount++
+              nodCount = Math.max(0, nodCount - 1)
+              console.log('Shaking detected:', shakeCount)
+              if (shakeCount >= 6) {
+                handleGestureResult('no')
+                return
+              }
+            } else {
+              shakeCount = Math.max(0, shakeCount - 1)
             }
           }
-        } catch (err) {
-          console.error('Face detection error:', err)
-          setDetectionStatus('Detection error. Using motion detection...')
-          startMotionDetection(ctx, video, canvas)
-          return
         }
-
-        animationFrameRef.current = requestAnimationFrame(detect)
       }
 
-      detect()
+      previousFrame = currentFrame
+      animationFrameRef.current = requestAnimationFrame(detect)
     }
 
-    function startMotionDetection(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvas: HTMLCanvasElement) {
-      setDetectionStatus('Using motion detection')
-      let previousFrame: ImageData | null = null
-      let centerOfMassHistory: { x: number; y: number }[] = []
-      let nodCount = 0
-      let shakeCount = 0
-      let frameCount = 0
-
-      const detect = () => {
-        if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
-          if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current)
-          }
-          return
-        }
-
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
-
-        if (previousFrame) {
-          // Calculate center of mass of motion
-          let totalMotionX = 0
-          let totalMotionY = 0
-          let totalMotion = 0
-
-          // Focus on center region
-          const centerX = Math.floor(canvas.width / 2)
-          const centerY = Math.floor(canvas.height / 2)
-          const regionSize = 200
-
-          for (let y = centerY - regionSize; y < centerY + regionSize; y += 10) {
-            for (let x = centerX - regionSize; x < centerX + regionSize; x += 10) {
-              if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
-                const idx = (y * canvas.width + x) * 4
-                
-                const currentBrightness = (
-                  currentFrame.data[idx] + 
-                  currentFrame.data[idx + 1] + 
-                  currentFrame.data[idx + 2]
-                ) / 3
-                
-                const prevBrightness = (
-                  previousFrame.data[idx] + 
-                  previousFrame.data[idx + 1] + 
-                  previousFrame.data[idx + 2]
-                ) / 3
-                
-                const diff = Math.abs(currentBrightness - prevBrightness)
-                
-                if (diff > 8) { // Lower motion threshold
-                  totalMotionX += x * diff
-                  totalMotionY += y * diff
-                  totalMotion += diff
-                }
-              }
-            }
-          }
-
-          if (totalMotion > 0) {
-            const centerOfMassX = totalMotionX / totalMotion
-            const centerOfMassY = totalMotionY / totalMotion
-
-            centerOfMassHistory.push({ x: centerOfMassX, y: centerOfMassY })
-            if (centerOfMassHistory.length > 20) {
-              centerOfMassHistory.shift()
-            }
-
-            frameCount++
-            if (frameCount % 3 === 0 && centerOfMassHistory.length >= 10) {
-              // Analyze vertical movement (nodding)
-              const recentY = centerOfMassHistory.slice(-10).map(p => p.y)
-              const minY = Math.min(...recentY)
-              const maxY = Math.max(...recentY)
-              const verticalRange = maxY - minY
-
-              if (verticalRange > 35) {
-                nodCount++
-                shakeCount = Math.max(0, shakeCount - 1)
-                setDetectionStatus(`Nodding detected (${nodCount}/4) - Range: ${verticalRange.toFixed(1)}`)
-                console.log('Nodding detected:', nodCount, 'vertical range:', verticalRange.toFixed(1))
-                if (nodCount >= 4) {
-                  handleGestureResult('yes')
-                  return
-                }
-              } else {
-                nodCount = Math.max(0, nodCount - 1)
-              }
-
-              // Analyze horizontal movement (shaking)
-              const recentX = centerOfMassHistory.slice(-10).map(p => p.x)
-              const minX = Math.min(...recentX)
-              const maxX = Math.max(...recentX)
-              const horizontalRange = maxX - minX
-
-              if (horizontalRange > 35) {
-                shakeCount++
-                nodCount = Math.max(0, nodCount - 1)
-                setDetectionStatus(`Shaking detected (${shakeCount}/4) - Range: ${horizontalRange.toFixed(1)}`)
-                console.log('Shaking detected:', shakeCount, 'horizontal range:', horizontalRange.toFixed(1))
-                if (shakeCount >= 4) {
-                  handleGestureResult('no')
-                  return
-                }
-              } else {
-                shakeCount = Math.max(0, shakeCount - 1)
-              }
-
-              if (nodCount === 0 && shakeCount === 0) {
-                setDetectionStatus('Move your head - nod for yes, shake for no')
-              }
-            }
-          } else {
-            setDetectionStatus('Waiting for movement...')
-          }
-        }
-
-        previousFrame = currentFrame
-        animationFrameRef.current = requestAnimationFrame(detect)
-      }
-
-      detect()
-    }
+    detect()
   }
 
-  const handleGestureResult = useRef(async (result: 'yes' | 'no') => {
+  const handleGestureResult = async (result: 'yes' | 'no') => {
     setGestureResult(result)
     
     // Stop camera
@@ -574,9 +479,7 @@ export default function PhotoTryoutResult() {
       cancelAnimationFrame(animationFrameRef.current)
     }
 
-    // Get current command from ref to avoid stale closure
-    const command = currentCommand
-    if (result === 'yes' && command) {
+    if (result === 'yes' && currentCommand) {
       // Save to closet table
       try {
         const supabase = supabaseRef.current
@@ -584,10 +487,10 @@ export default function PhotoTryoutResult() {
           const { error } = await supabase
             .from('closet')
             .insert({
-              clothing_url: command.clothing_url || null,
-              clothing_image_url: command.clothing_image_url || '',
-              tryout_result_image_url: command.result_image_url || null,
-              tryout_command_id: command.id
+              clothing_url: currentCommand.clothing_url || null,
+              clothing_image_url: currentCommand.clothing_image_url || '',
+              tryout_result_image_url: currentCommand.result_image_url || null,
+              tryout_command_id: currentCommand.id
             })
 
           if (error) {
@@ -612,7 +515,7 @@ export default function PhotoTryoutResult() {
       setGestureResult('pending')
       headPositionRef.current = []
     }, 2000)
-  }).current
+  }
 
   if (!showResult || !currentCommand || !currentCommand.result_image_url) {
     return null
@@ -637,7 +540,6 @@ export default function PhotoTryoutResult() {
               
               {/* Image */}
               <div className="relative mb-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={currentCommand.result_image_url}
                   alt="Tryout Result"
@@ -707,11 +609,9 @@ export default function PhotoTryoutResult() {
 
             {/* Status indicator */}
             {gestureResult === 'pending' && (
-              <div className="flex flex-col items-center gap-2 text-gray-600">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-medium">{detectionStatus}</span>
-                </div>
+              <div className="flex items-center justify-center gap-2 text-gray-600">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                <span className="text-sm">Detecting gesture...</span>
               </div>
             )}
           </div>
