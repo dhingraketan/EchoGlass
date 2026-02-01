@@ -232,6 +232,7 @@ export default function PhotoTryoutResult() {
       clearInterval(checkInterval)
       supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleClose = () => {
@@ -323,7 +324,10 @@ export default function PhotoTryoutResult() {
     const video = videoRef.current
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return
+    if (!ctx) {
+      setDetectionStatus('Canvas context not available')
+      return
+    }
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -331,12 +335,12 @@ export default function PhotoTryoutResult() {
     // Use Face Detection API if available, otherwise fallback to motion detection
     // @ts-ignore
     if (window.FaceDetector) {
-      startFaceDetection()
+      startFaceDetection(ctx, video, canvas)
     } else {
-      startMotionDetection()
+      startMotionDetection(ctx, video, canvas)
     }
 
-    function startFaceDetection() {
+    function startFaceDetection(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvas: HTMLCanvasElement) {
       setDetectionStatus('Using Face Detection API')
       // @ts-ignore
       const faceDetector = new window.FaceDetector({
@@ -424,7 +428,7 @@ export default function PhotoTryoutResult() {
         } catch (err) {
           console.error('Face detection error:', err)
           setDetectionStatus('Detection error. Using motion detection...')
-          startMotionDetection()
+          startMotionDetection(ctx, video, canvas)
           return
         }
 
@@ -434,7 +438,7 @@ export default function PhotoTryoutResult() {
       detect()
     }
 
-    function startMotionDetection() {
+    function startMotionDetection(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, canvas: HTMLCanvasElement) {
       setDetectionStatus('Using motion detection')
       let previousFrame: ImageData | null = null
       let centerOfMassHistory: { x: number; y: number }[] = []
