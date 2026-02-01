@@ -10,9 +10,22 @@ interface PhotoTryoutCommand {
   error_message: string | null
 }
 
+const HEADING_OPTIONS = [
+  "What do you think?",
+  "Looks cool!",
+  "How's this?",
+  "Pretty nice, right?",
+  "What's your take?",
+  "Looking good!",
+  "Check this out!",
+  "Not bad, eh?"
+]
+
 export default function PhotoTryoutResult() {
   const [showResult, setShowResult] = useState(false)
   const [currentCommand, setCurrentCommand] = useState<PhotoTryoutCommand | null>(null)
+  const [countdown, setCountdown] = useState(20)
+  const [heading, setHeading] = useState("What do you think?")
   const supabaseRef = useRef(createClient())
   const showingResultRef = useRef(false)
   const componentMountTimeRef = useRef<Date>(new Date())
@@ -72,6 +85,10 @@ export default function PhotoTryoutResult() {
       console.log('PhotoTryoutResult: Showing result for command:', command.id)
       shownCommandIdsRef.current.add(command.id)
       saveShownCommandId(command.id) // Persist to localStorage
+      // Pick a random heading
+      const randomHeading = HEADING_OPTIONS[Math.floor(Math.random() * HEADING_OPTIONS.length)]
+      setHeading(randomHeading)
+      setCountdown(20) // Reset countdown
       setCurrentCommand(command)
       setShowResult(true)
       showingResultRef.current = true
@@ -226,19 +243,33 @@ export default function PhotoTryoutResult() {
     // Note: We keep the command ID in shownCommandIdsRef so we don't show it again
   }
 
-  // Auto-close after 20 seconds when result is shown
+  // Auto-close after 20 seconds when result is shown, with countdown
   useEffect(() => {
     if (showResult && currentCommand) {
       console.log('PhotoTryoutResult: Starting 20-second auto-close timer')
-      const timer = setTimeout(() => {
+      setCountdown(20)
+      
+      const countdownInterval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+
+      const closeTimer = setTimeout(() => {
         console.log('PhotoTryoutResult: Auto-closing after 20 seconds')
         setShowResult(false)
         setCurrentCommand(null)
         showingResultRef.current = false
+        setCountdown(20)
       }, 20000) // 20 seconds
 
       return () => {
-        clearTimeout(timer)
+        clearInterval(countdownInterval)
+        clearTimeout(closeTimer)
       }
     }
   }, [showResult, currentCommand])
@@ -256,15 +287,33 @@ export default function PhotoTryoutResult() {
         >
           ×
         </button>
-        <div className="bg-white rounded-lg p-4">
-          <h2 className="text-2xl font-bold text-black mb-4 text-center">
-            Photo Tryout Result
+        <div className="bg-white rounded-lg p-6">
+          {/* Heading */}
+          <h2 className="text-3xl font-bold text-black mb-6 text-center">
+            {heading}
           </h2>
-          <img
-            src={currentCommand.result_image_url}
-            alt="Tryout Result"
-            className="w-full rounded-lg"
-          />
+          
+          {/* Image */}
+          <div className="relative mb-4">
+            <img
+              src={currentCommand.result_image_url}
+              alt="Tryout Result"
+              className="w-full rounded-lg"
+            />
+          </div>
+          
+          {/* Countdown timer - cleanly displayed below the image */}
+          <div className="flex items-center justify-center gap-3 mt-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
+              <span className="text-gray-600 text-sm">Auto-closing in</span>
+              <div className="bg-gray-100 px-3 py-1 rounded-full">
+                <span className="text-gray-800 font-bold text-lg tabular-nums">
+                  {countdown}s
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
