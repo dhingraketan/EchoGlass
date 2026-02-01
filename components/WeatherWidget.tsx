@@ -317,7 +317,7 @@ export default function WeatherWidget() {
           const opacity = 1 - (idx * 0.15) // Fade from 100% to 40% over 5 days
           return (
             <div key={idx} className="flex items-center justify-end gap-3 text-base font-light" style={{ opacity }}>
-              <span className="w-20 text-left pr-8">{day.dayName}</span>
+              <span className="w-20 text-left pr-8 font-bold">{day.dayName}</span>
               <span className="w-8 text-center">
                 <i className={`wi ${day.icon} text-2xl text-white`}></i>
               </span>

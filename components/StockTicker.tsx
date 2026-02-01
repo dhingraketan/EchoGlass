@@ -48,7 +48,7 @@ export default function StockTicker() {
   }, [])
 
   const renderStockItem = (stock: StockData, showSeparator: boolean) => (
-    <div key={`${stock.symbol}-${Math.random()}`} className="flex items-center gap-2 text-sm font-light text-white flex-shrink-0">
+    <div key={`${stock.symbol}-${Math.random()}`} className="flex items-center gap-2 text-base font-light text-white flex-shrink-0">
       <span className="font-bold">{stock.symbol}</span>
       <span>{stock.change >= 0 ? '↑' : '↓'}</span>
       <span>${stock.price.toFixed(2)}</span>
@@ -57,7 +57,7 @@ export default function StockTicker() {
   )
 
   return (
-    <div className="w-full overflow-hidden relative h-8">
+    <div className="w-full overflow-hidden relative h-12">
       <div className="flex items-center gap-0 animate-scroll whitespace-nowrap">
         {/* Duplicate content multiple times for seamless infinite scroll */}
         {[...stocks, ...stocks, ...stocks].map((stock, idx, arr) => 

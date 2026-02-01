@@ -218,7 +218,7 @@ export default function CalendarWidget({ householdId }: { householdId: string })
               <div key={dateKey} className="flex gap-4 relative" style={{ opacity: opacity }}>
                 {/* Left: Day and Date */}
                 <div className="flex-shrink-0 w-20 relative">
-                  <div className="text-sm font-light">{formatDateHeader(dayEvents[0].start_at)}</div>
+                  <div className="text-sm font-bold">{formatDateHeader(dayEvents[0].start_at)}</div>
                   {/* Dot positioned on the line, top-aligned with date */}
                   <div className="absolute left-[89px] top-0 -translate-x-1/2 w-2 h-2 bg-white rounded-full"></div>
                 </div>
@@ -228,7 +228,7 @@ export default function CalendarWidget({ householdId }: { householdId: string })
                   {dayEvents.map((event) => (
                     <div key={event.id} className="text-sm font-light">
                       <div className="text-white whitespace-nowrap flex items-center gap-2">
-                        <span className="inline-block w-32 text-left">{event.title}</span>
+                        <span className="inline-block w-32 text-left font-bold">{event.title}</span>
                         <span className="font-bold">::</span>
                         <span>{formatEventTime(event.start_at, event.end_at)}</span>
                       </div>

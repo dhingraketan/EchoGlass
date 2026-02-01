@@ -31,8 +31,8 @@ export default function TimeWidget() {
   return (
     <div className="text-white">
       {/* Date first, then time below - matching smart mirror style */}
-      <div className="text-lg font-light text-white/90 mb-3 uppercase tracking-wide">{date}</div>
-      <div className="text-6xl font-light tracking-tight leading-none">{time}</div>
+      <div className="text-xl font-normal text-white/90 mb-4 uppercase tracking-wide">{date}</div>
+      <div className="text-7xl font-normal tracking-tight leading-none">{time}</div>
     </div>
   )
 }

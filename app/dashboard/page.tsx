@@ -53,12 +53,12 @@ export default function DashboardPage() {
         <YouTubeQRPopup />
 
         {/* Bottom Left - Status */}
-        <div className="absolute bottom-16 left-8 right-96">
+        <div className="absolute bottom-28 left-8 right-96">
           <StatusWidget householdId={householdId} />
         </div>
 
         {/* Bottom Right - News Ticker */}
-        <div className="absolute bottom-16 right-8 w-80">
+        <div className="absolute bottom-28 right-8 w-80">
           <NewsTicker />
         </div>
 
