@@ -14,6 +14,7 @@ export default function PhotoTryoutCapture() {
   const [countdown, setCountdown] = useState<number | null>(null)
   const [currentCommand, setCurrentCommand] = useState<PhotoTryoutCommand | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null)
+  const [processing, setProcessing] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const supabaseRef = useRef(createClient())
@@ -172,10 +173,13 @@ export default function PhotoTryoutCapture() {
 
     ctx.drawImage(videoRef.current, 0, 0)
     const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9)
-    setCapturedPhoto(photoDataUrl)
     
-    // Stop camera
+    // Stop camera immediately
     stopCamera()
+    
+    // Set processing state immediately - don't show the photo
+    setProcessing(true)
+    setCapturedPhoto(photoDataUrl) // Store it but don't display it
 
     // Upload photo and update command
     uploadPhoto(photoDataUrl)
@@ -188,6 +192,9 @@ export default function PhotoTryoutCapture() {
     if (!supabase) return
 
     try {
+      // Set processing state - hide photo and show loading
+      setProcessing(true)
+      
       // Update command with user photo
       const { error } = await supabase
         .from('photo_tryout_commands')
@@ -205,6 +212,7 @@ export default function PhotoTryoutCapture() {
       await generateImage(currentCommand.id, photoDataUrl, currentCommand.clothing_image_url!)
     } catch (error: any) {
       console.error('Error uploading photo:', error)
+      setProcessing(false)
       alert('Failed to capture photo. Please try again.')
     }
   }
@@ -261,6 +269,7 @@ export default function PhotoTryoutCapture() {
       setCurrentCommand(null)
       setCapturedPhoto(null)
       setCountdown(null)
+      setProcessing(false)
       countdownStartedRef.current = false
     } catch (error: any) {
       console.error('Error generating image:', error)
@@ -274,6 +283,7 @@ export default function PhotoTryoutCapture() {
           })
           .eq('id', commandId)
       }
+      setProcessing(false)
       alert('Failed to generate image. Please try again.')
     }
   }
@@ -283,6 +293,7 @@ export default function PhotoTryoutCapture() {
     setCurrentCommand(null)
     setCapturedPhoto(null)
     setCountdown(null)
+    setProcessing(false)
     countdownStartedRef.current = false
     stopCamera()
   }
@@ -294,10 +305,38 @@ export default function PhotoTryoutCapture() {
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
       <div className="relative w-full h-full flex items-center justify-center">
-        {capturedPhoto ? (
-          <div className="text-center">
-            <img src={capturedPhoto} alt="Captured" className="max-w-full max-h-[80vh] rounded-lg mb-4" />
-            <p className="text-white text-lg">Processing...</p>
+        {processing ? (
+          <div className="flex flex-col items-center justify-center">
+            {/* Cool loading animation */}
+            <div className="relative w-40 h-40 mb-8">
+              {/* Outer rotating ring */}
+              <div className="absolute inset-0 border-4 border-white/20 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-transparent border-t-white rounded-full animate-spin"></div>
+              
+              {/* Middle pulsing circle */}
+              <div className="absolute inset-4 border-4 border-white/30 rounded-full animate-pulse"></div>
+              
+              {/* Inner rotating ring (opposite direction) */}
+              <div className="absolute inset-8 border-2 border-transparent border-r-white/60 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }}></div>
+              
+              {/* Center dot */}
+              <div className="absolute inset-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full top-1/2 left-1/2 animate-ping"></div>
+            </div>
+            
+            {/* Text with fade animation */}
+            <p className="text-white text-3xl font-light tracking-wide animate-pulse mb-2">
+              Processing your tryout...
+            </p>
+            <p className="text-white/60 text-base mt-2">
+              Creating your virtual tryout image
+            </p>
+            
+            {/* Progress dots */}
+            <div className="flex gap-2 mt-6">
+              <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+              <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+            </div>
           </div>
         ) : (
           <>
