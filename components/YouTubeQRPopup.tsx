@@ -19,11 +19,17 @@ export default function YouTubeQRPopup() {
 
   useEffect(() => {
     const supabase = createClient()
-    if (!supabase) return
+    if (!supabase) {
+      console.log('YouTubeQRPopup: No Supabase client')
+      return
+    }
+
+    console.log('YouTubeQRPopup: Setting up subscriptions')
 
     // Check for pending YouTube commands
     const checkForCommands = async () => {
       try {
+        console.log('YouTubeQRPopup: Checking for pending commands...')
         const { data, error } = await supabase
           .from('youtube_commands')
           .select('*')
@@ -34,20 +40,24 @@ export default function YouTubeQRPopup() {
         if (error) {
           // Table doesn't exist or RLS issue
           if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist')) {
-            console.log('youtube_commands table does not exist yet')
+            console.log('YouTubeQRPopup: youtube_commands table does not exist yet')
             return
           }
-          console.error('Error checking for YouTube commands:', error)
+          console.error('YouTubeQRPopup: Error checking for YouTube commands:', error)
           return
         }
 
+        console.log('YouTubeQRPopup: Found commands:', data)
         if (data && data.length > 0) {
+          console.log('YouTubeQRPopup: Setting command and showing popup:', data[0])
           setCurrentCommand(data[0])
           setShowPopup(true)
+        } else {
+          console.log('YouTubeQRPopup: No pending commands found')
         }
       } catch (err) {
         // Table might not exist, ignore
-        console.log('youtube_commands table does not exist yet')
+        console.log('YouTubeQRPopup: Exception checking commands:', err)
       }
     }
 
@@ -55,7 +65,11 @@ export default function YouTubeQRPopup() {
 
     // Subscribe to new YouTube commands
     const channel = supabase
-      .channel('youtube-commands')
+      .channel('youtube-commands', {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -65,12 +79,19 @@ export default function YouTubeQRPopup() {
           filter: 'status=eq.pending'
         },
         (payload: any) => {
-          console.log('New YouTube command received:', payload)
+          console.log('YouTubeQRPopup: New YouTube command received via Realtime:', payload)
           setCurrentCommand(payload.new)
           setShowPopup(true)
         }
       )
-      .subscribe()
+      .subscribe((status: string) => {
+        console.log('YouTubeQRPopup: Subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('YouTubeQRPopup: Successfully subscribed to youtube_commands INSERT events')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('YouTubeQRPopup: Subscription error - check if Realtime is enabled for youtube_commands table')
+        }
+      })
 
     // Also subscribe to updates (when URL is submitted)
     const updateChannel = supabase
@@ -156,7 +177,32 @@ export default function YouTubeQRPopup() {
     }
   }
 
-  if (!showPopup || !currentCommand) return null
+  console.log('YouTubeQRPopup: Render check - showPopup:', showPopup, 'currentCommand:', currentCommand)
+
+  // Debug: Add a test button (remove in production)
+  const testPopup = () => {
+    setCurrentCommand({
+      id: 'test-' + Date.now(),
+      created_at: new Date().toISOString(),
+      status: 'pending',
+      youtube_url: null
+    })
+    setShowPopup(true)
+  }
+
+  if (!showPopup || !currentCommand) {
+    console.log('YouTubeQRPopup: Not rendering - showPopup:', showPopup, 'currentCommand:', !!currentCommand)
+    // Temporary test button - remove in production
+    return (
+      <button
+        onClick={testPopup}
+        className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg z-50"
+        style={{ display: 'none' }} // Hidden by default, can enable for testing
+      >
+        Test QR Popup
+      </button>
+    )
+  }
 
   // Generate QR code URL that points to a simple form page
   const qrCodeUrl = typeof window !== 'undefined' 

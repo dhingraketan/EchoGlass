@@ -193,12 +193,15 @@ class YoutubeIntentHandler(AbstractRequestHandler):
         return is_intent_name("YoutubeIntent")(handler_input)
 
     def handle(self, handler_input):
-        
-        speech_text = f"Playing Youtube on EchoGlass."
-        logger.info("playing utube")
+        try:
+            call_vercel("youtube", {})
+            speech_text = f"Opening YouTube. Please scan the QR code or enter the video URL."
+        except Exception as e:
+            logger.error(f"Failed to trigger YouTube command: {e}")
+            speech_text = f"Sorry, I couldn't open YouTube. Please try again."
 
+        logger.info("playing youtube")
         handler_input.response_builder.speak(speech_text)
-        # call_vercel("complete", {"item": item})
 
         return handler_input.response_builder.response
 
