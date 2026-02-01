@@ -15,8 +15,41 @@ export default function PhotoTryoutResult() {
   const [currentCommand, setCurrentCommand] = useState<PhotoTryoutCommand | null>(null)
   const supabaseRef = useRef(createClient())
   const showingResultRef = useRef(false)
-  const shownCommandIdsRef = useRef<Set<string>>(new Set())
   const componentMountTimeRef = useRef<Date>(new Date())
+  
+  // Load shown command IDs from localStorage on mount
+  const loadShownCommandIds = (): Set<string> => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const stored = localStorage.getItem('photoTryoutShownCommandIds')
+      if (stored) {
+        const ids = JSON.parse(stored) as string[]
+        // Only keep IDs from the last 24 hours to prevent localStorage from growing too large
+        return new Set(ids)
+      }
+    } catch (err) {
+      console.error('PhotoTryoutResult: Error loading shown command IDs:', err)
+    }
+    return new Set()
+  }
+  
+  const saveShownCommandId = (id: string) => {
+    if (typeof window === 'undefined') return
+    try {
+      const stored = localStorage.getItem('photoTryoutShownCommandIds')
+      const ids = stored ? JSON.parse(stored) as string[] : []
+      if (!ids.includes(id)) {
+        ids.push(id)
+        // Keep only last 100 IDs to prevent localStorage from growing too large
+        const trimmedIds = ids.slice(-100)
+        localStorage.setItem('photoTryoutShownCommandIds', JSON.stringify(trimmedIds))
+      }
+    } catch (err) {
+      console.error('PhotoTryoutResult: Error saving shown command ID:', err)
+    }
+  }
+  
+  const shownCommandIdsRef = useRef<Set<string>>(loadShownCommandIds())
 
   // Helper function to check if we should show a command
   const shouldShowCommand = (command: PhotoTryoutCommand): boolean => {
@@ -38,6 +71,7 @@ export default function PhotoTryoutResult() {
     if (shouldShowCommand(command)) {
       console.log('PhotoTryoutResult: Showing result for command:', command.id)
       shownCommandIdsRef.current.add(command.id)
+      saveShownCommandId(command.id) // Persist to localStorage
       setCurrentCommand(command)
       setShowResult(true)
       showingResultRef.current = true
@@ -53,20 +87,25 @@ export default function PhotoTryoutResult() {
     // Don't check for old completed commands on mount - only listen for new ones
 
     // Also check periodically in case Realtime subscription misses the update
-    // Check for commands completed recently (last 5 minutes) as a backup
+    // Only check for commands completed VERY recently (last 30 seconds) as a backup
+    // This ensures we don't show old results on page reload
     const checkInterval = setInterval(async () => {
-      // Always check, even if showing a result (in case we need to show a new one)
+      // Only check if we're not already showing a result
+      if (showingResultRef.current) {
+        return
+      }
+      
       try {
-        // Check commands created in the last 5 minutes (wider window for Vercel)
-        const recentTime = new Date(Date.now() - 300000).toISOString()
+        // Only check commands created AFTER component mount (to avoid showing old results)
+        const mountTime = componentMountTimeRef.current.toISOString()
         const { data, error } = await supabase
           .from('photo_tryout_commands')
           .select('*')
           .eq('status', 'completed')
           .not('result_image_url', 'is', null)
-          .gte('created_at', recentTime) // Commands from last 5 minutes
+          .gte('created_at', mountTime) // Only commands created after page load
           .order('created_at', { ascending: false })
-          .limit(10) // Check up to 10 recent commands
+          .limit(5) // Check up to 5 recent commands
 
         if (error) {
           console.error('PhotoTryoutResult: Polling query error:', error)
@@ -88,7 +127,7 @@ export default function PhotoTryoutResult() {
       } catch (err) {
         console.error('PhotoTryoutResult: Error in polling check:', err)
       }
-    }, 1000) // Check every 1 second (very frequent for Vercel)
+    }, 1500) // Check every 1.5 seconds
 
     // Subscribe to completed commands
     const channel = supabase
