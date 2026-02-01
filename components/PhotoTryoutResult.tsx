@@ -341,8 +341,9 @@ export default function PhotoTryoutResult() {
     let nodCount = 0
     let shakeCount = 0
     let frameCount = 0
-    const motionThreshold = 8 // Lower threshold for better sensitivity
-    const detectionThreshold = 3 // Lower threshold for confirming gesture (was 5)
+    const motionThreshold = 2.5 // Much lower threshold - variance needs to exceed this
+    const avgMotionThreshold = 0.5 // Average motion needs to exceed this
+    const detectionThreshold = 3 // Number of consecutive detections needed
 
     const detect = () => {
       if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
@@ -444,11 +445,15 @@ export default function PhotoTryoutResult() {
               const avgH = recentHorizontal.reduce((a, b) => a + b, 0) / recentHorizontal.length
               const varianceH = recentHorizontal.reduce((sum, h) => sum + Math.pow(h - avgH, 2), 0) / recentHorizontal.length
 
-              // Detect nodding (vertical movement pattern) - more sensitive
-              if (varianceV > motionThreshold && avgV > motionThreshold / 3) { // Changed from /2 to /3
+              // Detect nodding (vertical movement pattern) - much more sensitive
+              // Check if vertical variance is significantly higher than horizontal (nodding)
+              const verticalDominance = varianceV > varianceH * 1.2 // Vertical variance is 20%+ higher
+              const hasVerticalMotion = varianceV > motionThreshold && avgV > avgMotionThreshold
+              
+              if (verticalDominance && hasVerticalMotion) {
                 nodCount++
                 shakeCount = Math.max(0, shakeCount - 1)
-                console.log(`PhotoTryoutResult: Nodding detected - count: ${nodCount}/${detectionThreshold}, varianceV: ${varianceV.toFixed(2)}, avgV: ${avgV.toFixed(2)}`)
+                console.log(`PhotoTryoutResult: Nodding detected - count: ${nodCount}/${detectionThreshold}, varianceV: ${varianceV.toFixed(2)} (H: ${varianceH.toFixed(2)}), avgV: ${avgV.toFixed(2)}`)
                 if (nodCount >= detectionThreshold) {
                   console.log('PhotoTryoutResult: Nodding confirmed - YES')
                   handleGestureResult('yes')
@@ -458,11 +463,15 @@ export default function PhotoTryoutResult() {
                 nodCount = Math.max(0, nodCount - 1)
               }
 
-              // Detect shaking (horizontal movement pattern) - more sensitive
-              if (varianceH > motionThreshold && avgH > motionThreshold / 3) { // Changed from /2 to /3
+              // Detect shaking (horizontal movement pattern) - much more sensitive
+              // Check if horizontal variance is significantly higher than vertical (shaking)
+              const horizontalDominance = varianceH > varianceV * 1.2 // Horizontal variance is 20%+ higher
+              const hasHorizontalMotion = varianceH > motionThreshold && avgH > avgMotionThreshold
+              
+              if (horizontalDominance && hasHorizontalMotion) {
                 shakeCount++
                 nodCount = Math.max(0, nodCount - 1)
-                console.log(`PhotoTryoutResult: Shaking detected - count: ${shakeCount}/${detectionThreshold}, varianceH: ${varianceH.toFixed(2)}, avgH: ${avgH.toFixed(2)}`)
+                console.log(`PhotoTryoutResult: Shaking detected - count: ${shakeCount}/${detectionThreshold}, varianceH: ${varianceH.toFixed(2)} (V: ${varianceV.toFixed(2)}), avgH: ${avgH.toFixed(2)}`)
                 if (shakeCount >= detectionThreshold) {
                   console.log('PhotoTryoutResult: Shaking confirmed - NO')
                   handleGestureResult('no')
