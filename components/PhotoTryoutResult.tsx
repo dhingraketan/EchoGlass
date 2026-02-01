@@ -307,14 +307,26 @@ export default function PhotoTryoutResult() {
 
   const startGestureDetection = async () => {
     try {
+      console.log('PhotoTryoutResult: Starting gesture detection')
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' }
+        video: { facingMode: 'user', width: 640, height: 480 }
       })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.play()
-        detectHeadMovement()
+        
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          console.log('PhotoTryoutResult: Video metadata loaded, starting detection')
+          if (videoRef.current) {
+            videoRef.current.play().then(() => {
+              console.log('PhotoTryoutResult: Video playing, starting head movement detection')
+              setTimeout(() => detectHeadMovement(), 500) // Small delay to ensure video is rendering
+            }).catch(err => {
+              console.error('PhotoTryoutResult: Error playing video:', err)
+            })
+          }
+        }
       }
     } catch (error) {
       console.error('Error accessing camera for gesture detection:', error)
@@ -323,15 +335,36 @@ export default function PhotoTryoutResult() {
   }
 
   const detectHeadMovement = () => {
-    if (!videoRef.current || !canvasRef.current) return
+    if (!videoRef.current || !canvasRef.current) {
+      console.error('PhotoTryoutResult: Video or canvas ref missing')
+      return
+    }
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    
+    // Ensure video is ready
+    if (video.readyState < 2) {
+      console.log('PhotoTryoutResult: Video not ready, waiting...')
+      setTimeout(() => detectHeadMovement(), 100)
+      return
+    }
 
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) {
+      console.error('PhotoTryoutResult: Could not get canvas context')
+      return
+    }
+
+    // Set canvas size to match video
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      console.log(`PhotoTryoutResult: Canvas size set to ${canvas.width}x${canvas.height}`)
+    } else {
+      console.error('PhotoTryoutResult: Video dimensions invalid')
+      return
+    }
 
     // Simple motion-based head movement detection
     let previousFrame: ImageData | null = null
@@ -339,18 +372,27 @@ export default function PhotoTryoutResult() {
     let nodCount = 0
     let shakeCount = 0
     let frameCount = 0
-    const motionThreshold = 30 // Adjust based on testing
+    const motionThreshold = 20 // Lower threshold for better sensitivity
 
     const detect = () => {
       if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
+        console.log('PhotoTryoutResult: Detection stopped')
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current)
         }
         return
       }
 
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      // Check video is still playing
+      if (video.readyState < 2 || video.paused) {
+        console.log('PhotoTryoutResult: Video not ready or paused')
+        animationFrameRef.current = requestAnimationFrame(detect)
+        return
+      }
+
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
       if (previousFrame) {
         // Focus on center region where face typically is
@@ -435,8 +477,9 @@ export default function PhotoTryoutResult() {
             if (varianceV > motionThreshold && avgV > motionThreshold / 2) {
               nodCount++
               shakeCount = Math.max(0, shakeCount - 1)
-              console.log('Nodding detected:', nodCount)
-              if (nodCount >= 6) {
+              console.log(`PhotoTryoutResult: Nodding detected - count: ${nodCount}, varianceV: ${varianceV.toFixed(2)}, avgV: ${avgV.toFixed(2)}`)
+              if (nodCount >= 5) {
+                console.log('PhotoTryoutResult: Nodding confirmed - YES')
                 handleGestureResult('yes')
                 return
               }
@@ -448,22 +491,33 @@ export default function PhotoTryoutResult() {
             if (varianceH > motionThreshold && avgH > motionThreshold / 2) {
               shakeCount++
               nodCount = Math.max(0, nodCount - 1)
-              console.log('Shaking detected:', shakeCount)
-              if (shakeCount >= 6) {
+              console.log(`PhotoTryoutResult: Shaking detected - count: ${shakeCount}, varianceH: ${varianceH.toFixed(2)}, avgH: ${avgH.toFixed(2)}`)
+              if (shakeCount >= 5) {
+                console.log('PhotoTryoutResult: Shaking confirmed - NO')
                 handleGestureResult('no')
                 return
               }
             } else {
               shakeCount = Math.max(0, shakeCount - 1)
             }
+            
+            // Log motion stats every 30 frames for debugging
+            if (frameCount % 30 === 0) {
+              console.log(`PhotoTryoutResult: Motion stats - V: ${avgV.toFixed(2)} (var: ${varianceV.toFixed(2)}), H: ${avgH.toFixed(2)} (var: ${varianceH.toFixed(2)}), Nod: ${nodCount}, Shake: ${shakeCount}`)
+            }
           }
         }
       }
 
-      previousFrame = currentFrame
-      animationFrameRef.current = requestAnimationFrame(detect)
+        previousFrame = currentFrame
+        animationFrameRef.current = requestAnimationFrame(detect)
+      } catch (err) {
+        console.error('PhotoTryoutResult: Error in detection loop:', err)
+        animationFrameRef.current = requestAnimationFrame(detect)
+      }
     }
 
+    console.log('PhotoTryoutResult: Starting detection loop')
     detect()
   }
 
@@ -600,6 +654,7 @@ export default function PhotoTryoutResult() {
                 <canvas
                   ref={canvasRef}
                   className="hidden"
+                  style={{ display: 'none' }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="border-2 border-white/50 rounded-full w-48 h-48"></div>
@@ -609,10 +664,28 @@ export default function PhotoTryoutResult() {
 
             {/* Status indicator */}
             {gestureResult === 'pending' && (
-              <div className="flex items-center justify-center gap-2 text-gray-600">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                <span className="text-sm">Detecting gesture...</span>
-              </div>
+              <>
+                <div className="flex items-center justify-center gap-2 text-gray-600 mb-4">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm">Detecting gesture...</span>
+                </div>
+                
+                {/* Manual buttons as fallback */}
+                <div className="flex items-center justify-center gap-4">
+                  <button
+                    onClick={() => handleGestureResult('yes')}
+                    className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg text-lg font-bold transition-colors"
+                  >
+                    ✓ Yes, I'll get it
+                  </button>
+                  <button
+                    onClick={() => handleGestureResult('no')}
+                    className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-bold transition-colors"
+                  >
+                    ✗ No, skip it
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
