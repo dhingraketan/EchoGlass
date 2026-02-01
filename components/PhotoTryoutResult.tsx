@@ -335,13 +335,14 @@ export default function PhotoTryoutResult() {
       return
     }
 
-    // Simple motion-based head movement detection
+    // Improved motion-based head movement detection
     let previousFrame: ImageData | null = null
     let motionHistory: { vertical: number; horizontal: number; timestamp: number }[] = []
     let nodCount = 0
     let shakeCount = 0
     let frameCount = 0
-    const motionThreshold = 20 // Lower threshold for better sensitivity
+    const motionThreshold = 8 // Lower threshold for better sensitivity
+    const detectionThreshold = 3 // Lower threshold for confirming gesture (was 5)
 
     const detect = () => {
       if (!videoRef.current || !canvasRef.current || gestureResult !== 'pending') {
@@ -354,7 +355,7 @@ export default function PhotoTryoutResult() {
 
       // Check video is still playing
       if (video.readyState < 2 || video.paused) {
-        console.log('PhotoTryoutResult: Video not ready or paused')
+        console.log('PhotoTryoutResult: Video not ready or paused, readyState:', video.readyState, 'paused:', video.paused)
         animationFrameRef.current = requestAnimationFrame(detect)
         return
       }
@@ -364,23 +365,23 @@ export default function PhotoTryoutResult() {
         const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
         if (previousFrame) {
-          // Focus on center region where face typically is
+          // Focus on center region where face typically is (larger region for better detection)
           const centerX = Math.floor(canvas.width / 2)
           const centerY = Math.floor(canvas.height / 2)
-          const regionSize = 150
+          const regionSize = 200 // Increased from 150
 
           let verticalMotion = 0
           let horizontalMotion = 0
           let sampleCount = 0
 
-          // Sample motion in center region
-          for (let y = centerY - regionSize; y < centerY + regionSize; y += 8) {
-            for (let x = centerX - regionSize; x < centerX + regionSize; x += 8) {
+          // Sample motion in center region (more samples for better accuracy)
+          for (let y = centerY - regionSize; y < centerY + regionSize; y += 6) { // Changed from 8 to 6 for more samples
+            for (let x = centerX - regionSize; x < centerX + regionSize; x += 6) {
               if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
                 const idx = (y * canvas.width + x) * 4
                 const prevIdx = idx
                 
-                // Calculate brightness difference
+                // Calculate brightness difference (more sensitive)
                 const currentBrightness = (
                   currentFrame.data[idx] + 
                   currentFrame.data[idx + 1] + 
@@ -413,13 +414,13 @@ export default function PhotoTryoutResult() {
           }
 
           // Normalize motion values
-          const avgVerticalMotion = verticalMotion / sampleCount
-          const avgHorizontalMotion = horizontalMotion / sampleCount
+          const avgVerticalMotion = sampleCount > 0 ? verticalMotion / sampleCount : 0
+          const avgHorizontalMotion = sampleCount > 0 ? horizontalMotion / sampleCount : 0
 
           frameCount++
           
-          // Analyze motion every 5 frames
-          if (frameCount % 5 === 0) {
+          // Analyze motion every 3 frames (more frequent analysis)
+          if (frameCount % 3 === 0) {
             const timestamp = Date.now()
             motionHistory.push({
               vertical: avgVerticalMotion,
@@ -427,13 +428,14 @@ export default function PhotoTryoutResult() {
               timestamp
             })
 
-            // Keep only last 2 seconds of motion history
-            motionHistory = motionHistory.filter(m => timestamp - m.timestamp < 2000)
+            // Keep only last 1.5 seconds of motion history (shorter window for faster response)
+            motionHistory = motionHistory.filter(m => timestamp - m.timestamp < 1500)
 
-            if (motionHistory.length >= 10) {
+            // Start analyzing after just 5 frames (was 10)
+            if (motionHistory.length >= 5) {
               // Analyze recent motion patterns
-              const recentVertical = motionHistory.slice(-10).map(m => m.vertical)
-              const recentHorizontal = motionHistory.slice(-10).map(m => m.horizontal)
+              const recentVertical = motionHistory.slice(-8).map(m => m.vertical) // Use last 8 instead of 10
+              const recentHorizontal = motionHistory.slice(-8).map(m => m.horizontal)
 
               // Calculate variance to detect consistent movement
               const avgV = recentVertical.reduce((a, b) => a + b, 0) / recentVertical.length
@@ -442,12 +444,12 @@ export default function PhotoTryoutResult() {
               const avgH = recentHorizontal.reduce((a, b) => a + b, 0) / recentHorizontal.length
               const varianceH = recentHorizontal.reduce((sum, h) => sum + Math.pow(h - avgH, 2), 0) / recentHorizontal.length
 
-              // Detect nodding (vertical movement pattern)
-              if (varianceV > motionThreshold && avgV > motionThreshold / 2) {
+              // Detect nodding (vertical movement pattern) - more sensitive
+              if (varianceV > motionThreshold && avgV > motionThreshold / 3) { // Changed from /2 to /3
                 nodCount++
                 shakeCount = Math.max(0, shakeCount - 1)
-                console.log(`PhotoTryoutResult: Nodding detected - count: ${nodCount}, varianceV: ${varianceV.toFixed(2)}, avgV: ${avgV.toFixed(2)}`)
-                if (nodCount >= 5) {
+                console.log(`PhotoTryoutResult: Nodding detected - count: ${nodCount}/${detectionThreshold}, varianceV: ${varianceV.toFixed(2)}, avgV: ${avgV.toFixed(2)}`)
+                if (nodCount >= detectionThreshold) {
                   console.log('PhotoTryoutResult: Nodding confirmed - YES')
                   handleGestureResult('yes')
                   return
@@ -456,12 +458,12 @@ export default function PhotoTryoutResult() {
                 nodCount = Math.max(0, nodCount - 1)
               }
 
-              // Detect shaking (horizontal movement pattern)
-              if (varianceH > motionThreshold && avgH > motionThreshold / 2) {
+              // Detect shaking (horizontal movement pattern) - more sensitive
+              if (varianceH > motionThreshold && avgH > motionThreshold / 3) { // Changed from /2 to /3
                 shakeCount++
                 nodCount = Math.max(0, nodCount - 1)
-                console.log(`PhotoTryoutResult: Shaking detected - count: ${shakeCount}, varianceH: ${varianceH.toFixed(2)}, avgH: ${avgH.toFixed(2)}`)
-                if (shakeCount >= 5) {
+                console.log(`PhotoTryoutResult: Shaking detected - count: ${shakeCount}/${detectionThreshold}, varianceH: ${varianceH.toFixed(2)}, avgH: ${avgH.toFixed(2)}`)
+                if (shakeCount >= detectionThreshold) {
                   console.log('PhotoTryoutResult: Shaking confirmed - NO')
                   handleGestureResult('no')
                   return
@@ -470,9 +472,14 @@ export default function PhotoTryoutResult() {
                 shakeCount = Math.max(0, shakeCount - 1)
               }
               
-              // Log motion stats every 30 frames for debugging
-              if (frameCount % 30 === 0) {
-                console.log(`PhotoTryoutResult: Motion stats - V: ${avgV.toFixed(2)} (var: ${varianceV.toFixed(2)}), H: ${avgH.toFixed(2)} (var: ${varianceH.toFixed(2)}), Nod: ${nodCount}, Shake: ${shakeCount}`)
+              // Log motion stats every 15 frames for debugging (more frequent)
+              if (frameCount % 15 === 0) {
+                console.log(`PhotoTryoutResult: Motion stats - V: ${avgV.toFixed(2)} (var: ${varianceV.toFixed(2)}), H: ${avgH.toFixed(2)} (var: ${varianceH.toFixed(2)}), Nod: ${nodCount}/${detectionThreshold}, Shake: ${shakeCount}/${detectionThreshold}, Frames: ${frameCount}`)
+              }
+            } else {
+              // Log when we're still collecting frames
+              if (frameCount % 15 === 0) {
+                console.log(`PhotoTryoutResult: Collecting motion data... ${motionHistory.length}/5 frames, V: ${avgVerticalMotion.toFixed(2)}, H: ${avgHorizontalMotion.toFixed(2)}`)
               }
             }
           }
@@ -497,18 +504,45 @@ export default function PhotoTryoutResult() {
         video: { facingMode: 'user', width: 640, height: 480 }
       })
       streamRef.current = stream
+      console.log('PhotoTryoutResult: Camera stream obtained')
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
+        console.log('PhotoTryoutResult: Video srcObject set')
+        
+        // Wait for video metadata to load
+        const handleLoadedMetadata = () => {
+          console.log('PhotoTryoutResult: Video metadata loaded, dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
           if (videoRef.current) {
-            videoRef.current.play().then(() => {
-              setTimeout(() => detectHeadMovement(), 500)
-            })
+            videoRef.current.play()
+              .then(() => {
+                console.log('PhotoTryoutResult: Video playing, starting detection in 500ms')
+                setTimeout(() => {
+                  console.log('PhotoTryoutResult: Starting head movement detection')
+                  detectHeadMovement()
+                }, 500)
+              })
+              .catch((err) => {
+                console.error('PhotoTryoutResult: Error playing video:', err)
+              })
           }
         }
+        
+        // Set up event listeners
+        if (videoRef.current.readyState >= 2) {
+          // Already loaded
+          handleLoadedMetadata()
+        } else {
+          videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true })
+          videoRef.current.addEventListener('canplay', handleLoadedMetadata, { once: true })
+        }
+      } else {
+        console.error('PhotoTryoutResult: videoRef.current is null')
       }
     } catch (error) {
       console.error('Error accessing camera for gesture detection:', error)
+      // If camera fails, show error but don't break the UI
+      alert('Could not access camera for gesture detection. Please use the buttons below.')
     }
   }, [detectHeadMovement])
 
